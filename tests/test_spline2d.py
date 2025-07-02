@@ -170,24 +170,52 @@ class TestSpline2D:
         assert abs(val1 - val2) < 1e-1
 
     def test_missing_data_handling(self):
-        """Test handling of missing data (NaN values)."""
-        x = np.linspace(0, 1, 5)
-        y = np.linspace(0, 1, 4)
+        """Test handling of missing data (NaN values) with finer resolution and hole."""
+        # Create fine resolution grid
+        x = np.linspace(0, 1, 21)  # Much finer resolution: 21 points
+        y = np.linspace(0, 1, 21)
         
         X, Y = np.meshgrid(x, y, indexing='ij')
-        Z = X + Y
+        Z = X**2 + Y**2  # Simple function: distance squared from origin
         
-        # Introduce some NaN values
-        Z_with_nan = Z.copy()
-        Z_with_nan[1, 1] = np.nan
-        Z_with_nan[3, 2] = np.nan
+        # Create a circular hole in the center
+        center_x, center_y = 0.5, 0.5
+        hole_radius = 0.2
+        
+        # Calculate distance from center for each grid point
+        distances = np.sqrt((X - center_x)**2 + (Y - center_y)**2)
+        
+        # Create hole by setting points within radius to NaN
+        Z_with_hole = Z.copy()
+        hole_mask = distances <= hole_radius
+        Z_with_hole[hole_mask] = np.nan
+        
+        # Add some scattered missing points outside the hole for realism
+        Z_with_hole[2, 18] = np.nan   # Top right area
+        Z_with_hole[18, 2] = np.nan   # Bottom left area
+        Z_with_hole[15, 15] = np.nan  # Right side
         
         # Should not crash and should produce reasonable results
-        spline = Spline2D(x, y, Z_with_nan.ravel(), kx=3, ky=3)
+        spline = Spline2D(x, y, Z_with_hole.ravel(), kx=3, ky=3)
         
-        # Test evaluation at non-NaN regions
-        result = spline(0.0, 0.0, grid=False)
-        assert np.isfinite(result)
+        # Test evaluation at various regions
+        # 1. Test at corners (should be valid)
+        result_corner = spline(0.0, 0.0, grid=False)
+        assert np.isfinite(result_corner)
+        expected_corner = 0.0**2 + 0.0**2
+        assert abs(result_corner - expected_corner) < 1e-1
+        
+        # 2. Test near the hole boundary (should still interpolate)
+        boundary_x = center_x + hole_radius * 1.2  # Just outside hole
+        boundary_y = center_y
+        result_boundary = spline(boundary_x, boundary_y, grid=False)
+        assert np.isfinite(result_boundary)
+        
+        # 3. Test at opposite corner
+        result_far = spline(1.0, 1.0, grid=False)
+        assert np.isfinite(result_far)
+        expected_far = 1.0**2 + 1.0**2
+        assert abs(result_far - expected_far) < 1e-1
 
     def test_cfunc_compatibility(self):
         """Test that cfunc implementations produce same results as class methods."""
@@ -255,6 +283,127 @@ class TestSpline2D:
         Z = X + Y
         with pytest.raises(ValueError):
             Spline2D(x, y, Z.ravel(), kx=2, ky=1)  # Order 2 not supported
+
+    def test_sparse_grid_with_holes(self):
+        """Test interpolation on sparse grid with intentional holes (missing data points)."""
+        # NOTE: Since our implementation requires evenly spaced grids, 
+        # "holes" must be simulated by creating smaller regular grids that exclude certain regions
+        
+        # Test Case 1: Create two separate regions with a gap between them
+        # Left region: x=[0, 1], y=[0, 1, 2]  
+        x_left = np.array([0.0, 1.0])
+        y_region = np.array([0.0, 1.0, 2.0])
+        X_left, Y_left = np.meshgrid(x_left, y_region, indexing='ij')
+        Z_left = X_left + 2*Y_left
+        
+        # Right region: x=[3, 4], y=[0, 1, 2] (gap from x=1 to x=3)
+        x_right = np.array([3.0, 4.0])
+        X_right, Y_right = np.meshgrid(x_right, y_region, indexing='ij')  
+        Z_right = X_right + 2*Y_right
+        
+        # Create splines for each region
+        spline_left = Spline2D(x_left, y_region, Z_left.ravel(), kx=1, ky=1)
+        spline_right = Spline2D(x_right, y_region, Z_right.ravel(), kx=1, ky=1)
+        
+        # Test interpolation at boundaries of each region
+        # Left boundary
+        result_left = spline_left(0.5, 1.0, grid=False)
+        expected_left = 0.5 + 2*1.0  # = 2.5
+        assert abs(result_left - expected_left) < 1e-12
+        
+        # Right boundary  
+        result_right = spline_right(3.5, 1.0, grid=False)
+        expected_right = 3.5 + 2*1.0  # = 5.5
+        assert abs(result_right - expected_right) < 1e-12
+        
+        # Test Case 2: Simulate hole by creating grid that excludes central region
+        # Create outer frame: corners and edges only
+        x_frame = np.array([0.0, 2.0])  # Skip middle x values
+        y_frame = np.array([0.0, 2.0])  # Skip middle y values
+        X_frame, Y_frame = np.meshgrid(x_frame, y_frame, indexing='ij')
+        Z_frame = X_frame**2 + Y_frame**2
+        
+        spline_frame = Spline2D(x_frame, y_frame, Z_frame.ravel(), kx=1, ky=1)
+        
+        # Test interpolation quality at frame points
+        result_frame = spline_frame(1.0, 1.0, grid=False)  # Center point
+        expected_frame = 1.0**2 + 1.0**2  # = 2.0
+        
+        # Debug: check what we actually get
+        # Corners: (0,0)→0, (0,2)→4, (2,0)→4, (2,2)→8
+        # Linear interpolation at (1,1) should give average: (0+4+4+8)/4 = 4
+        # So the expected result is actually 4, not 2
+        expected_frame = 4.0  # Bilinear interpolation of corner values
+        assert abs(result_frame - expected_frame) < 1e-12
+        
+        # Test Case 3: Different density regions to simulate data sparsity
+        # Dense region
+        x_dense = np.linspace(0, 1, 11)  # High resolution
+        y_dense = np.linspace(0, 1, 11)
+        X_dense, Y_dense = np.meshgrid(x_dense, y_dense, indexing='ij')
+        Z_dense = np.sin(np.pi * X_dense) * np.cos(np.pi * Y_dense)
+        
+        # Sparse region (same domain, lower resolution)
+        x_sparse = np.linspace(0, 1, 4)  # Low resolution
+        y_sparse = np.linspace(0, 1, 4)
+        X_sparse, Y_sparse = np.meshgrid(x_sparse, y_sparse, indexing='ij')
+        Z_sparse = np.sin(np.pi * X_sparse) * np.cos(np.pi * Y_sparse)
+        
+        spline_dense = Spline2D(x_dense, y_dense, Z_dense.ravel(), kx=3, ky=3)
+        spline_sparse = Spline2D(x_sparse, y_sparse, Z_sparse.ravel(), kx=3, ky=3)
+        
+        # Compare interpolation quality at test point
+        test_x, test_y = 0.5, 0.5
+        result_dense = spline_dense(test_x, test_y, grid=False)
+        result_sparse = spline_sparse(test_x, test_y, grid=False)
+        analytical = np.sin(np.pi * test_x) * np.cos(np.pi * test_y)
+        
+        # Dense should be more accurate
+        error_dense = abs(result_dense - analytical)
+        error_sparse = abs(result_sparse - analytical)
+        
+        assert error_dense < 1e-2  # Dense grid should be quite accurate
+        assert error_sparse < 1e-1  # Sparse grid should still be reasonable
+        assert error_dense <= error_sparse  # Dense should be better or equal
+
+    def test_sparse_vs_dense_comparison(self):
+        """Compare interpolation quality between sparse and dense grids."""
+        # Create dense reference grid
+        x_dense = np.linspace(0, 2*np.pi, 16)
+        y_dense = np.linspace(0, np.pi, 12)
+        X_dense, Y_dense = np.meshgrid(x_dense, y_dense, indexing='ij')
+        Z_dense = np.sin(X_dense) * np.cos(Y_dense)
+        
+        spline_dense = Spline2D(x_dense, y_dense, Z_dense.ravel(), kx=3, ky=3)
+        
+        # Create sparse grid by taking every other point
+        x_sparse = x_dense[::2]
+        y_sparse = y_dense[::2]
+        X_sparse, Y_sparse = np.meshgrid(x_sparse, y_sparse, indexing='ij')
+        Z_sparse = np.sin(X_sparse) * np.cos(Y_sparse)
+        
+        spline_sparse = Spline2D(x_sparse, y_sparse, Z_sparse.ravel(), kx=3, ky=3)
+        
+        # Test interpolation quality at same test points
+        test_points = [
+            (np.pi/2, np.pi/4),
+            (np.pi, np.pi/3), 
+            (3*np.pi/2, 2*np.pi/3)
+        ]
+        
+        for test_x, test_y in test_points:
+            if test_x <= x_sparse.max() and test_y <= y_sparse.max():
+                result_dense = spline_dense(test_x, test_y, grid=False)
+                result_sparse = spline_sparse(test_x, test_y, grid=False)
+                analytical = np.sin(test_x) * np.cos(test_y)
+                
+                # Dense should be more accurate
+                error_dense = abs(result_dense - analytical)
+                error_sparse = abs(result_sparse - analytical)
+                
+                # Both should be reasonable, but dense should be better or similar
+                assert error_dense < 1e-1
+                assert error_sparse < 1e-0  # More relaxed for sparse
 
     def test_edge_cases(self):
         """Test edge cases and boundary conditions."""
