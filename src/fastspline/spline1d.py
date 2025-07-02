@@ -1,7 +1,10 @@
-"""1D Spline interpolation with numba acceleration."""
+"""1D Spline interpolation with numba acceleration using cfunc for C interoperability."""
 
 import numpy as np
-from numba import njit
+from numba import njit, cfunc, types
+from numba.core import cgutils
+from numba.core.extending import overload_method
+import numba as nb
 from typing import Tuple
 
 
@@ -220,6 +223,120 @@ def _find_interval_and_local_coord(x, x_min, h_step, num_points, periodic):
     return interval_index, x_local
 
 
+# C-compatible function signatures using cfunc
+@cfunc(types.float64(types.float64, types.float64[:, :], types.float64, types.float64, types.int64, types.int64, types.boolean))
+def evaluate_spline_cfunc(x, coeffs, x_min, h_step, num_points, order, periodic):
+    """
+    C-compatible spline evaluation function.
+    
+    Parameters:
+    x: evaluation point
+    coeffs: coefficient matrix (shape: order+1 x num_points)
+    x_min: minimum x value
+    h_step: grid spacing
+    num_points: number of grid points
+    order: spline order (1 or 3)
+    periodic: whether spline is periodic
+    """
+    # Find interval and local coordinate
+    if periodic:
+        # Handle periodic case
+        x_period = h_step * (num_points - 1)
+        xj = x - x_min
+        xj = xj - np.floor(xj / x_period) * x_period + x_min
+    else:
+        xj = x
+    
+    x_norm = (xj - x_min) / h_step
+    interval_index = max(0, min(num_points - 1, int(x_norm)))
+    x_local = (x_norm - float(interval_index)) * h_step
+    
+    # Evaluate polynomial using Horner's method
+    result = coeffs[order, interval_index]
+    for k in range(order-1, -1, -1):
+        result = coeffs[k, interval_index] + x_local * result
+    
+    return result
+
+
+@cfunc(types.UniTuple(types.float64, 2)(types.float64, types.float64[:, :], types.float64, types.float64, types.int64, types.int64, types.boolean))
+def evaluate_spline_derivative_cfunc(x, coeffs, x_min, h_step, num_points, order, periodic):
+    """
+    C-compatible spline evaluation with first derivative.
+    
+    Returns: (value, derivative)
+    """
+    # Find interval and local coordinate
+    if periodic:
+        x_period = h_step * (num_points - 1)
+        xj = x - x_min
+        xj = xj - np.floor(xj / x_period) * x_period + x_min
+    else:
+        xj = x
+    
+    x_norm = (xj - x_min) / h_step
+    interval_index = max(0, min(num_points - 1, int(x_norm)))
+    x_local = (x_norm - float(interval_index)) * h_step
+    
+    # Evaluate function value
+    y = coeffs[order, interval_index]
+    for k in range(order-1, -1, -1):
+        y = coeffs[k, interval_index] + x_local * y
+    
+    # Evaluate derivative
+    if order == 0:
+        dy = 0.0
+    else:
+        dy = coeffs[order, interval_index] * order
+        for k in range(order-1, 0, -1):
+            dy = coeffs[k, interval_index] * k + x_local * dy
+    
+    return y, dy
+
+
+@cfunc(types.UniTuple(types.float64, 3)(types.float64, types.float64[:, :], types.float64, types.float64, types.int64, types.int64, types.boolean))
+def evaluate_spline_second_derivative_cfunc(x, coeffs, x_min, h_step, num_points, order, periodic):
+    """
+    C-compatible spline evaluation with first and second derivatives.
+    
+    Returns: (value, first_derivative, second_derivative)
+    """
+    # Find interval and local coordinate
+    if periodic:
+        x_period = h_step * (num_points - 1)
+        xj = x - x_min
+        xj = xj - np.floor(xj / x_period) * x_period + x_min
+    else:
+        xj = x
+    
+    x_norm = (xj - x_min) / h_step
+    interval_index = max(0, min(num_points - 1, int(x_norm)))
+    x_local = (x_norm - float(interval_index)) * h_step
+    
+    # Evaluate function value
+    y = coeffs[order, interval_index]
+    for k in range(order-1, -1, -1):
+        y = coeffs[k, interval_index] + x_local * y
+    
+    # Evaluate first derivative
+    if order == 0:
+        dy = 0.0
+    else:
+        dy = coeffs[order, interval_index] * order
+        for k in range(order-1, 0, -1):
+            dy = coeffs[k, interval_index] * k + x_local * dy
+    
+    # Evaluate second derivative
+    if order <= 1:
+        d2y = 0.0
+    else:
+        d2y = coeffs[order, interval_index] * order * (order - 1)
+        for k in range(order-1, 1, -1):
+            d2y = coeffs[k, interval_index] * k * (k - 1) + x_local * d2y
+    
+    return y, dy, d2y
+
+
 class Spline1D:
     """
     1D Spline interpolation with numba acceleration.
@@ -277,28 +394,34 @@ class Spline1D:
                 self.coeffs = _compute_cubic_coefficients_regular(y.astype(np.float64), self.h_step)
     
     def evaluate(self, x: float) -> float:
-        """Evaluate spline at given x coordinate."""
-        interval_index, x_local = _find_interval_and_local_coord(
-            x, self.x_min, self.h_step, self.num_points, self.periodic
+        """Evaluate spline at given x coordinate using C-compatible cfunc."""
+        return evaluate_spline_cfunc(
+            x, self.coeffs, self.x_min, self.h_step, self.num_points, self.order, self.periodic
         )
-        
-        coeff_local = self.coeffs[:, interval_index]
-        return _evaluate_polynomial(coeff_local, x_local, self.order)
     
     def evaluate_with_derivative(self, x: float) -> Tuple[float, float]:
-        """Evaluate spline and its derivative at given x coordinate."""
-        interval_index, x_local = _find_interval_and_local_coord(
-            x, self.x_min, self.h_step, self.num_points, self.periodic
+        """Evaluate spline and its derivative at given x coordinate using C-compatible cfunc."""
+        return evaluate_spline_derivative_cfunc(
+            x, self.coeffs, self.x_min, self.h_step, self.num_points, self.order, self.periodic
         )
-        
-        coeff_local = self.coeffs[:, interval_index]
-        return _evaluate_polynomial_derivative(coeff_local, x_local, self.order)
     
     def evaluate_with_second_derivative(self, x: float) -> Tuple[float, float, float]:
-        """Evaluate spline and its first and second derivatives at given x coordinate."""
-        interval_index, x_local = _find_interval_and_local_coord(
-            x, self.x_min, self.h_step, self.num_points, self.periodic
+        """Evaluate spline and its first and second derivatives at given x coordinate using C-compatible cfunc."""
+        return evaluate_spline_second_derivative_cfunc(
+            x, self.coeffs, self.x_min, self.h_step, self.num_points, self.order, self.periodic
         )
-        
-        coeff_local = self.coeffs[:, interval_index]
-        return _evaluate_polynomial_second_derivative(coeff_local, x_local, self.order)
+    
+    @property
+    def cfunc_evaluate(self):
+        """Get the C-compatible function pointer for spline evaluation."""
+        return evaluate_spline_cfunc
+    
+    @property
+    def cfunc_evaluate_derivative(self):
+        """Get the C-compatible function pointer for spline evaluation with derivative."""
+        return evaluate_spline_derivative_cfunc
+    
+    @property
+    def cfunc_evaluate_second_derivative(self):
+        """Get the C-compatible function pointer for spline evaluation with second derivative."""
+        return evaluate_spline_second_derivative_cfunc

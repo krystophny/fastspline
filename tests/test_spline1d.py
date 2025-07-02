@@ -1,6 +1,6 @@
 import numpy as np
 import pytest
-from fastspline.spline1d import Spline1D
+from fastspline.spline1d import Spline1D, evaluate_spline_cfunc, evaluate_spline_derivative_cfunc, evaluate_spline_second_derivative_cfunc
 
 
 class TestSpline1D:
@@ -126,3 +126,53 @@ class TestSpline1D:
         # Higher order should handle gracefully or raise appropriate error
         with pytest.raises((ValueError, AssertionError)):
             Spline1D(x_data, y_data, order=3, periodic=False)
+
+    def test_cfunc_compatibility(self):
+        """Test that cfunc implementations produce same results as class methods."""
+        x_data = np.linspace(0, 2*np.pi, 10)
+        y_data = np.sin(x_data)
+        
+        spline = Spline1D(x_data, y_data, order=3, periodic=False)
+        
+        # Test multiple evaluation points
+        x_test = np.array([0.5, 1.5, 2.5, 3.5])
+        
+        for x in x_test:
+            # Compare class method vs direct cfunc call
+            y_class = spline.evaluate(x)
+            y_cfunc = evaluate_spline_cfunc(
+                x, spline.coeffs, spline.x_min, spline.h_step, 
+                spline.num_points, spline.order, spline.periodic
+            )
+            assert abs(y_class - y_cfunc) < 1e-14
+            
+            # Compare derivatives
+            y_class, dy_class = spline.evaluate_with_derivative(x)
+            y_cfunc, dy_cfunc = evaluate_spline_derivative_cfunc(
+                x, spline.coeffs, spline.x_min, spline.h_step,
+                spline.num_points, spline.order, spline.periodic
+            )
+            assert abs(y_class - y_cfunc) < 1e-14
+            assert abs(dy_class - dy_cfunc) < 1e-14
+            
+            # Compare second derivatives
+            y_class, dy_class, d2y_class = spline.evaluate_with_second_derivative(x)
+            y_cfunc, dy_cfunc, d2y_cfunc = evaluate_spline_second_derivative_cfunc(
+                x, spline.coeffs, spline.x_min, spline.h_step,
+                spline.num_points, spline.order, spline.periodic
+            )
+            assert abs(y_class - y_cfunc) < 1e-14
+            assert abs(dy_class - dy_cfunc) < 1e-14
+            assert abs(d2y_class - d2y_cfunc) < 1e-14
+
+    def test_cfunc_properties(self):
+        """Test that cfunc properties return the correct function objects."""
+        x_data = np.array([0.0, 1.0, 2.0])
+        y_data = np.array([1.0, 2.0, 3.0])
+        
+        spline = Spline1D(x_data, y_data, order=1, periodic=False)
+        
+        # Check that properties return the correct cfunc objects
+        assert spline.cfunc_evaluate is evaluate_spline_cfunc
+        assert spline.cfunc_evaluate_derivative is evaluate_spline_derivative_cfunc
+        assert spline.cfunc_evaluate_second_derivative is evaluate_spline_second_derivative_cfunc
