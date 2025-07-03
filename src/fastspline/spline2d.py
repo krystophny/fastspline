@@ -750,6 +750,145 @@ def bisplrep(x, y, z, w=None, xb=None, xe=None, yb=None, ye=None,
         return tck
 
 
+# Pre-compiled numba function for array evaluation
+from numba import njit, prange
+
+@njit(parallel=True, cache=True)
+def _bisplev_array(x_arr, y_arr, tx, ty, c, kx, ky):
+    """Evaluate bisplev on arrays of points."""
+    n = len(x_arr)
+    result = np.zeros(n)
+    for i in prange(n):
+        result[i] = bisplev(x_arr[i], y_arr[i], tx, ty, c, kx, ky)
+    return result
+
+@njit(parallel=True, cache=True)
+def _bisplev_grid(X, Y, tx, ty, c, kx, ky):
+    """Evaluate bisplev on a meshgrid."""
+    ni, nj = X.shape
+    result = np.zeros((ni, nj))
+    for i in prange(ni):
+        for j in range(nj):
+            result[i, j] = bisplev(X[i, j], Y[i, j], tx, ty, c, kx, ky)
+    return result
+
+@njit(parallel=True, cache=True)
+def _bisplev_meshgrid(x_arr, y_arr, tx, ty, c, kx, ky):
+    """Evaluate bisplev on a meshgrid defined by x and y arrays."""
+    nx = len(x_arr)
+    ny = len(y_arr)
+    result = np.zeros((nx, ny))
+    
+    # Optimize for the case where we evaluate the same x for all y values
+    for i in prange(nx):
+        x_val = x_arr[i]
+        for j in range(ny):
+            result[i, j] = bisplev(x_val, y_arr[j], tx, ty, c, kx, ky)
+    return result
+
+@cfunc(types.void(types.float64[:], types.float64[:], types.float64[:], 
+                  types.float64[:], types.float64[:], types.int64, types.int64,
+                  types.float64[:, :]), nopython=True, fastmath=True, boundscheck=False)
+def bisplev_grid_cfunc(x_arr, y_arr, tx, ty, c, kx, ky, result):
+    """Ultra-fast grid evaluation as a cfunc."""
+    nx = len(x_arr)
+    ny = len(y_arr)
+    
+    # Process grid row by row
+    for i in range(nx):
+        x_val = x_arr[i]
+        for j in range(ny):
+            y_val = y_arr[j]
+            # Inline the bisplev evaluation for maximum speed
+            result[i, j] = bisplev(x_val, y_val, tx, ty, c, kx, ky)
+
+
+def bisplev_wrapper(x, y, tck, dx=0, dy=0, grid=True):
+    """
+    Evaluate a bivariate B-spline and its derivatives.
+    
+    FastSpline implementation compatible with scipy.interpolate.bisplev.
+    Uses our optimized cfunc for fast evaluation.
+    
+    Parameters
+    ----------
+    x, y : array_like
+        Evaluation points. Can be scalars or arrays.
+    tck : tuple
+        A sequence of length 5 returned by bisplrep containing the knot 
+        locations tx, ty, the coefficients c, and the degrees kx, ky of 
+        the spline.
+    dx, dy : int, optional
+        Order of partial derivatives. Default is 0.
+    grid : bool, optional
+        If True (default), when x and y are both 1-D arrays, the output is a 2-D
+        array with shape (len(x), len(y)) - compatible with scipy.bisplev.
+        If False, evaluate at points (x[i], y[i]) and return 1-D array.
+        
+    Returns
+    -------
+    z : ndarray
+        The interpolated values. Shape depends on input:
+        - If x, y are scalars: returns scalar
+        - If x, y are 1D arrays of same length: returns 1D array
+        - If x, y are 1D arrays of different lengths: returns 2D array (meshgrid)
+    """
+    # Unpack tck
+    tx, ty, c, kx, ky = tck
+    
+    # Convert inputs to arrays
+    x = np.asarray(x, dtype=np.float64)
+    y = np.asarray(y, dtype=np.float64)
+    
+    x_scalar = x.ndim == 0
+    y_scalar = y.ndim == 0
+    
+    # Handle scalar inputs
+    if x_scalar and y_scalar:
+        if dx == 0 and dy == 0:
+            return float(bisplev(x, y, tx, ty, c, kx, ky))
+        else:
+            raise NotImplementedError("Derivatives not yet implemented for bisplev")
+    
+    # Convert scalars to 1D arrays for uniform processing
+    if x_scalar:
+        x = np.array([x])
+    if y_scalar:
+        y = np.array([y])
+    
+    # Check if we should create a meshgrid
+    if x.ndim == 1 and y.ndim == 1 and grid:
+        # For 1D arrays with grid=True, create meshgrid like scipy
+        if dx == 0 and dy == 0:
+            # Use the cfunc version for better performance
+            result = np.zeros((len(x), len(y)), dtype=np.float64)
+            bisplev_grid_cfunc(x, y, tx, ty, c, kx, ky, result)
+        else:
+            raise NotImplementedError("Derivatives not yet implemented for bisplev")
+            
+        return result
+    
+    # Same length arrays or higher dimensional - evaluate pointwise
+    x_flat = x.ravel()
+    y_flat = y.ravel()
+    
+    if len(x_flat) != len(y_flat):
+        raise ValueError("x and y must have the same number of elements for pointwise evaluation")
+    
+    result = np.zeros(len(x_flat))
+    
+    if dx == 0 and dy == 0:
+        result = _bisplev_array(x_flat, y_flat, tx, ty, c, kx, ky)
+    else:
+        raise NotImplementedError("Derivatives not yet implemented for bisplev")
+    
+    # Reshape result to match input shape
+    if x_scalar and y_scalar:
+        return float(result[0])
+    else:
+        return result.reshape(x.shape)
+
+
 
 
 class Spline2D:

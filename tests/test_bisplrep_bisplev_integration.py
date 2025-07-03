@@ -8,8 +8,7 @@ import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from fastspline.bisplrep_cfunc import bisplrep
-from fastspline import bisplev
+from fastspline import bisplrep, bisplev
 
 
 def test_bisplrep_bisplev_integration():
@@ -22,16 +21,11 @@ def test_bisplrep_bisplev_integration():
     y = np.random.uniform(-1, 1, n)
     z = np.exp(-(x**2 + y**2))
     
-    # Fit with our bisplrep
-    tx = np.zeros(30)
-    ty = np.zeros(30)
-    c = np.zeros(900)
+    # Fit with our bisplrep (returns tck tuple)
+    tck = bisplrep(x, y, z, kx=3, ky=3)
+    tx, ty, c, kx, ky = tck
     
-    result = bisplrep(x, y, z, 3, 3, tx, ty, c)
-    nx = (result >> 32) & 0xFFFFFFFF
-    ny = result & 0xFFFFFFFF
-    
-    print(f"Our bisplrep produced nx={nx}, ny={ny} knots")
+    print(f"Our bisplrep produced nx={len(tx)}, ny={len(ty)} knots")
     
     # Test evaluation at various points
     test_points = [
@@ -43,7 +37,7 @@ def test_bisplrep_bisplev_integration():
     ]
     
     for xt, yt in test_points:
-        z_eval = bisplev(xt, yt, tx[:nx], ty[:ny], c[:nx*ny], 3, 3)
+        z_eval = bisplev(xt, yt, tck)
         z_true = np.exp(-(xt**2 + yt**2))
         error = abs(z_eval - z_true)
         print(f"Point ({xt:5.1f}, {yt:5.1f}): eval={z_eval:.4f}, true={z_true:.4f}, error={error:.2e}")
@@ -65,16 +59,10 @@ def test_compare_with_scipy_fit():
     tck_scipy = scipy_bisplrep(x, y, z, kx=3, ky=3, s=0.1)
     
     # Fit with our implementation
-    tx = np.zeros(50)
-    ty = np.zeros(50)
-    c = np.zeros(2500)
-    
-    result = bisplrep(x, y, z, 3, 3, tx, ty, c)
-    nx = (result >> 32) & 0xFFFFFFFF
-    ny = result & 0xFFFFFFFF
+    tck_ours = bisplrep(x, y, z, kx=3, ky=3, s=0.1)
     
     print(f"\nSciPy: nx={len(tck_scipy[0])}, ny={len(tck_scipy[1])}")
-    print(f"Ours:  nx={nx}, ny={ny}")
+    print(f"Ours:  nx={len(tck_ours[0])}, ny={len(tck_ours[1])}")
     
     # Compare evaluations on a grid
     n_test = 10
@@ -96,7 +84,7 @@ def test_compare_with_scipy_fit():
             z_scipy = scipy_bisplev(xt, yt, tck_scipy)
             
             # Our evaluation
-            z_ours = bisplev(xt, yt, tx[:nx], ty[:ny], c[:nx*ny], 3, 3)
+            z_ours = bisplev(xt, yt, tck_ours)
             
             # Track differences
             max_scipy_ours_diff = max(max_scipy_ours_diff, abs(z_scipy - z_ours))

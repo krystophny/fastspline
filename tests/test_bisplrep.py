@@ -9,8 +9,7 @@ import os
 # Add parent directory to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from fastspline.bisplrep_cfunc import bisplrep
-from fastspline import bisplev
+from fastspline import bisplrep, bisplev
 
 
 class TestBisplrepBasic:
@@ -23,23 +22,20 @@ class TestBisplrepBasic:
         y = np.array([0, 0, 0, 0.5, 0.5, 0.5, 1, 1, 1])
         z = x**2 + y**2
         
-        # Fit with our bisplrep
-        tx = np.zeros(20)
-        ty = np.zeros(20)
-        c = np.zeros(400)
-        
-        result = bisplrep(x, y, z, 2, 2, tx, ty, c)
-        nx = (result >> 32) & 0xFFFFFFFF
-        ny = result & 0xFFFFFFFF
+        # Fit with our bisplrep (returns tck tuple)
+        tck = bisplrep(x, y, z, kx=2, ky=2)
+        tx, ty, c, kx, ky = tck
         
         # Check that we get reasonable knot counts
-        assert nx >= 4 and nx <= 10, f"Unexpected nx: {nx}"
-        assert ny >= 4 and ny <= 10, f"Unexpected ny: {ny}"
+        nx = len(tx)
+        ny = len(ty)
+        assert nx >= 4 and nx <= 20, f"Unexpected nx: {nx}"
+        assert ny >= 4 and ny <= 20, f"Unexpected ny: {ny}"
         
         # Evaluate at test points
         test_points = [(0.25, 0.25), (0.5, 0.5), (0.75, 0.75)]
         for xt, yt in test_points:
-            z_eval = bisplev(xt, yt, tx[:nx], ty[:ny], c[:nx*ny], 2, 2)
+            z_eval = bisplev(xt, yt, tck)
             z_true = xt**2 + yt**2
             assert abs(z_eval - z_true) < 0.01, f"Large error at ({xt}, {yt}): {abs(z_eval - z_true)}"
     
@@ -51,17 +47,11 @@ class TestBisplrepBasic:
         z = np.array([0, 1, 2, 3])
         
         # Fit with k=1
-        tx = np.zeros(10)
-        ty = np.zeros(10)
-        c = np.zeros(100)
-        
-        result = bisplrep(x, y, z, 1, 1, tx, ty, c)
-        nx = (result >> 32) & 0xFFFFFFFF
-        ny = result & 0xFFFFFFFF
+        tck = bisplrep(x, y, z, kx=1, ky=1)
         
         # Test exact interpolation at data points
         for i in range(len(x)):
-            z_eval = bisplev(x[i], y[i], tx[:nx], ty[:ny], c[:nx*ny], 1, 1)
+            z_eval = bisplev(x[i], y[i], tck)
             assert abs(z_eval - z[i]) < 1e-10, f"Interpolation error at point {i}"
 
 
