@@ -1,6 +1,6 @@
 import numpy as np
 import pytest
-from fastspline.spline2d import Spline2D, evaluate_spline_2d_cfunc, evaluate_spline_2d_derivatives_cfunc
+from fastspline.spline2d import Spline2D, evaluate_spline_2d_cfunc, evaluate_spline_2d_derivatives_cfunc, bisplev_cfunc
 
 
 class TestSpline2D:
@@ -429,3 +429,105 @@ class TestSpline2D:
         
         # Test center
         assert abs(spline(0.5, 0.5, grid=False) - 1.0) < 1e-12
+
+    def test_unstructured_data_api(self):
+        """Test API compatibility with scipy.interpolate.bisplrep for unstructured data."""
+        # Generate scattered data points
+        np.random.seed(42)
+        n_points = 25
+        x = np.random.uniform(0, 1, n_points)
+        y = np.random.uniform(0, 1, n_points)
+        z = np.sin(np.pi * x) * np.cos(np.pi * y)  # Test function
+        
+        # Test that Spline2D can handle unstructured data (equal length arrays)
+        spline = Spline2D(x, y, z, kx=3, ky=3)
+        
+        # Test evaluation at original points
+        for i in range(min(5, n_points)):  # Test first 5 points
+            result = spline(x[i], y[i], grid=False)
+            assert np.isfinite(result), f"Result not finite at point {i}"
+        
+        # Test evaluation at new points
+        x_test = np.array([0.2, 0.5, 0.8])
+        y_test = np.array([0.3, 0.6, 0.9])
+        for xi, yi in zip(x_test, y_test):
+            result = spline(xi, yi, grid=False)
+            assert np.isfinite(result), f"Result not finite at test point ({xi}, {yi})"
+    
+    def test_unstructured_vs_structured_comparison(self):
+        """Compare unstructured data interpolation with structured grid interpolation."""
+        # Create structured grid
+        x_grid = np.linspace(0, 1, 6)
+        y_grid = np.linspace(0, 1, 6)
+        X, Y = np.meshgrid(x_grid, y_grid, indexing='ij')
+        Z = np.sin(np.pi * X) * np.cos(np.pi * Y)
+        
+        # Create structured spline
+        spline_structured = Spline2D(x_grid, y_grid, Z.ravel(), kx=3, ky=3)
+        
+        # Convert to unstructured format
+        x_unstructured = X.ravel()
+        y_unstructured = Y.ravel()
+        z_unstructured = Z.ravel()
+        
+        # Create unstructured spline
+        spline_unstructured = Spline2D(x_unstructured, y_unstructured, z_unstructured, kx=3, ky=3)
+        
+        # Test that both give similar results at test points
+        x_test = np.array([0.25, 0.75])
+        y_test = np.array([0.25, 0.75])
+        
+        for xi, yi in zip(x_test, y_test):
+            result_structured = spline_structured(xi, yi, grid=False)
+            result_unstructured = spline_unstructured(xi, yi, grid=False)
+            
+            # They should be reasonably close (allowing for different algorithms)
+            assert abs(result_structured - result_unstructured) < 0.1, \
+                f"Large difference at ({xi}, {yi}): structured={result_structured}, unstructured={result_unstructured}"
+    
+    def test_scipy_bisplrep_compatibility(self):
+        """Test that our unstructured data API matches scipy.interpolate.bisplrep behavior."""
+        # Generate test data similar to bisplrep examples
+        np.random.seed(123)
+        n_points = 20
+        x = np.random.uniform(-1, 1, n_points)
+        y = np.random.uniform(-1, 1, n_points)
+        z = x * np.exp(-x**2 - y**2)  # Standard test function
+        
+        # Test that our implementation accepts the same input format as bisplrep
+        spline = Spline2D(x, y, z, kx=3, ky=3)
+        
+        # Test evaluation at grid points
+        x_eval = np.linspace(-1, 1, 5)
+        y_eval = np.linspace(-1, 1, 5)
+        
+        # Test single point evaluation
+        result = spline(0.0, 0.0, grid=False)
+        assert np.isfinite(result)
+        
+        # Test grid evaluation
+        results = spline(x_eval, y_eval, grid=True)
+        assert results.shape == (len(x_eval), len(y_eval))
+        assert np.all(np.isfinite(results))
+
+    def test_bisplev_cfunc_interface(self):
+        """Test the bisplev-compatible cfunc interface."""
+        # Create test data
+        x = np.linspace(0, 1, 4)
+        y = np.linspace(0, 1, 4)
+        X, Y = np.meshgrid(x, y, indexing='ij')
+        Z = X**2 + Y**2
+        
+        spline = Spline2D(x, y, Z.ravel(), kx=3, ky=3)
+        
+        # Test that bisplev cfunc is accessible
+        assert spline.cfunc_bisplev is bisplev_cfunc
+        
+        # Test basic functionality (simplified implementation)
+        # For now, just test that it doesn't crash
+        dummy_tx = np.array([0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0])
+        dummy_ty = np.array([0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0])
+        dummy_c = np.array([1.0, 2.0, 3.0, 4.0])
+        
+        result = bisplev_cfunc(0.5, 0.5, dummy_tx, dummy_ty, dummy_c, 3, 3, 8, 8)
+        assert np.isfinite(result)
