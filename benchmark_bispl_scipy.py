@@ -10,7 +10,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import time
 from scipy.interpolate import bisplrep as scipy_bisplrep, bisplev as scipy_bisplev
-from fastspline.spline2d import bisplrep as fast_bisplrep, bisplev as fast_bisplev, bisplev_cfunc
+from fastspline import bisplrep as fast_bisplrep, bisplev as fast_bisplev
 
 
 def generate_test_data(n_points, function_type='smooth'):
@@ -152,34 +152,30 @@ def benchmark_bisplev_evaluation(n_points_list, n_eval=1000):
         time_scipy_k3 = (time.perf_counter() - start) * 1000
         times_row.append(time_scipy_k3)
         
-        # FastSpline bisplev k=1
+        # FastSpline bisplev k=1 (cfunc)
+        tx1, ty1, c1, kx1, ky1 = tck_k1
+        nx1, ny1 = len(tx1), len(ty1)
         start = time.perf_counter()
         for i in range(n_eval):
-            result = fast_bisplev(x_eval[i], y_eval[i], tck_k1)
+            result = fast_bisplev(x_eval[i], y_eval[i], tx1, ty1, c1, kx1, ky1, nx1, ny1)
         time_fastspline_k1 = (time.perf_counter() - start) * 1000
         times_row.append(time_fastspline_k1)
         
-        # FastSpline bisplev k=3
+        # FastSpline bisplev k=3 (cfunc)
+        tx3, ty3, c3, kx3, ky3 = tck_k3
+        nx3, ny3 = len(tx3), len(ty3)
         start = time.perf_counter()
         for i in range(n_eval):
-            result = fast_bisplev(x_eval[i], y_eval[i], tck_k3)
+            result = fast_bisplev(x_eval[i], y_eval[i], tx3, ty3, c3, kx3, ky3, nx3, ny3)
         time_fastspline_k3 = (time.perf_counter() - start) * 1000
         times_row.append(time_fastspline_k3)
         
-        # FastSpline bisplev_cfunc k=1 (direct)
-        start = time.perf_counter()
-        for i in range(n_eval):
-            result = bisplev_cfunc(x_eval[i], y_eval[i], tck_k1[0], tck_k1[1], tck_k1[2], 
-                                 1, 1, len(tck_k1[0]), len(tck_k1[1]))
-        time_cfunc_k1 = (time.perf_counter() - start) * 1000
+        # FastSpline cfunc k=1 (same as above now)
+        time_cfunc_k1 = time_fastspline_k1  # Same function now
         times_row.append(time_cfunc_k1)
         
-        # FastSpline bisplev_cfunc k=3 (direct)
-        start = time.perf_counter()
-        for i in range(n_eval):
-            result = bisplev_cfunc(x_eval[i], y_eval[i], tck_k3[0], tck_k3[1], tck_k3[2], 
-                                 3, 3, len(tck_k3[0]), len(tck_k3[1]))
-        time_cfunc_k3 = (time.perf_counter() - start) * 1000
+        # FastSpline cfunc k=3 (same as above now)
+        time_cfunc_k3 = time_fastspline_k3  # Same function now
         times_row.append(time_cfunc_k3)
         
         # Store results
@@ -235,16 +231,18 @@ def benchmark_accuracy_comparison(n_points=1000):
         scipy_results_k3.append(scipy_bisplev(x_test[i], y_test[i], tck_k3_scipy))
         
         # FastSpline bisplev results
-        fastspline_results_k1.append(fast_bisplev(x_test[i], y_test[i], tck_k1_fast))
-        fastspline_results_k3.append(fast_bisplev(x_test[i], y_test[i], tck_k3_fast))
+        tx1, ty1, c1, kx1, ky1 = tck_k1_fast
+        tx3, ty3, c3, kx3, ky3 = tck_k3_fast
+        fastspline_results_k1.append(fast_bisplev(x_test[i], y_test[i], tx1, ty1, c1, kx1, ky1, len(tx1), len(ty1)))
+        fastspline_results_k3.append(fast_bisplev(x_test[i], y_test[i], tx3, ty3, c3, kx3, ky3, len(tx3), len(ty3)))
         
-        # FastSpline cfunc results
-        cfunc_results_k1.append(bisplev_cfunc(x_test[i], y_test[i], 
-                                             tck_k1_scipy[0], tck_k1_scipy[1], tck_k1_scipy[2], 
-                                             1, 1, len(tck_k1_scipy[0]), len(tck_k1_scipy[1])))
-        cfunc_results_k3.append(bisplev_cfunc(x_test[i], y_test[i], 
-                                             tck_k3_scipy[0], tck_k3_scipy[1], tck_k3_scipy[2], 
-                                             3, 3, len(tck_k3_scipy[0]), len(tck_k3_scipy[1])))
+        # FastSpline cfunc results (same as FastSpline now)
+        cfunc_results_k1.append(fast_bisplev(x_test[i], y_test[i], 
+                                            tck_k1_scipy[0], tck_k1_scipy[1], tck_k1_scipy[2], 
+                                            1, 1, len(tck_k1_scipy[0]), len(tck_k1_scipy[1])))
+        cfunc_results_k3.append(fast_bisplev(x_test[i], y_test[i], 
+                                            tck_k3_scipy[0], tck_k3_scipy[1], tck_k3_scipy[2], 
+                                            3, 3, len(tck_k3_scipy[0]), len(tck_k3_scipy[1])))
     
     # Calculate differences
     diff_fast_k1 = np.array(scipy_results_k1) - np.array(fastspline_results_k1)

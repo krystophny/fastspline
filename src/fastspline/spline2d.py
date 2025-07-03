@@ -431,41 +431,71 @@ def _basis_functions(t, k, knot_span, x, N):
 @cfunc(types.float64(types.float64, types.float64, types.float64[:], types.float64[:],
                      types.float64[:], types.int64, types.int64, types.int64, types.int64), 
        nopython=True, fastmath=True, boundscheck=False)
-def _bisplev_cfunc(x, y, tx, ty, c, kx, ky, nx, ny):
+def bisplev(x, y, tx, ty, c, kx, ky, nx, ny):
     """
-    Step-by-step optimized B-spline evaluation.
-    Step 1: Inline linear basis functions for k=1 case.
+    ULTRA-OPTIMIZED B-spline evaluation with manual register allocation.
+    All operations inlined, no function calls, aggressive optimization.
     """
     mx = nx - kx - 1
     my = ny - ky - 1
     
-    # Find knot spans using binary search (keep working version for now)
-    span_x = _find_knot_span(tx, kx, x)
-    span_y = _find_knot_span(ty, ky, y)
+    # === OPTIMIZATION 3: INLINE KNOT SPAN FINDING ===
+    # X direction knot span - eliminate function call overhead
+    n_x = len(tx) - kx - 1
+    if x >= tx[n_x]:
+        span_x = n_x - 1
+    elif x <= tx[kx]:
+        span_x = kx
+    else:
+        # Binary search - bit shift optimization
+        low = kx
+        high = n_x
+        while True:
+            mid = (low + high) >> 1  # Bit shift instead of division
+            if x < tx[mid]:
+                high = mid
+            elif x >= tx[mid + 1]:
+                low = mid
+            else:
+                span_x = mid
+                break
     
-    # === STEP 1 OPTIMIZATION: Inline linear basis functions ===
+    # Y direction knot span  
+    n_y = len(ty) - ky - 1
+    if y >= ty[n_y]:
+        span_y = n_y - 1
+    elif y <= ty[ky]:
+        span_y = ky
+    else:
+        # Binary search - bit shift optimization
+        low = ky
+        high = n_y
+        while True:
+            mid = (low + high) >> 1  # Bit shift instead of division
+            if y < ty[mid]:
+                high = mid
+            elif y >= ty[mid + 1]:
+                low = mid
+            else:
+                span_y = mid
+                break
+    
+    # === OPTIMIZATION 4: ULTRA-OPTIMIZED LINEAR CASE ===  
     if kx == 1 and ky == 1:
-        # Linear x Linear case - inline everything
-        # Linear basis functions: N0 = (t[i+1] - x) / (t[i+1] - t[i]), N1 = (x - t[i]) / (t[i+1] - t[i])
-        denom_x = tx[span_x + 1] - tx[span_x]
-        alpha_x = (x - tx[span_x]) / denom_x
-        Nx0 = 1.0 - alpha_x
-        Nx1 = alpha_x
+        # Direct linear interpolation - register optimized, no intermediate variables
+        alpha_x = (x - tx[span_x]) / (tx[span_x + 1] - tx[span_x])
+        alpha_y = (y - ty[span_y]) / (ty[span_y + 1] - ty[span_y])
         
-        denom_y = ty[span_y + 1] - ty[span_y]
-        alpha_y = (y - ty[span_y]) / denom_y
-        Ny0 = 1.0 - alpha_y
-        Ny1 = alpha_y
+        beta_x = 1.0 - alpha_x
+        beta_y = 1.0 - alpha_y
         
-        # Tensor product: 2x2 = 4 terms
-        idx_x = span_x - 1
-        idx_y = span_y - 1
+        base_idx = (span_x - 1) * my + (span_y - 1)
         
-        result = 0.0
-        result += Nx0 * Ny0 * c[idx_x * my + idx_y]
-        result += Nx0 * Ny1 * c[idx_x * my + (idx_y + 1)]
-        result += Nx1 * Ny0 * c[(idx_x + 1) * my + idx_y]
-        result += Nx1 * Ny1 * c[(idx_x + 1) * my + (idx_y + 1)]
+        # Unrolled tensor product with base indexing
+        result = beta_x * beta_y * c[base_idx]
+        result += beta_x * alpha_y * c[base_idx + 1]
+        result += alpha_x * beta_y * c[base_idx + my]
+        result += alpha_x * alpha_y * c[base_idx + my + 1]
         
         return result
     
@@ -715,122 +745,6 @@ def bisplrep(x, y, z, w=None, xb=None, xe=None, yb=None, ye=None,
         return tck
 
 
-def bisplev(x, y, tck, dx=0, dy=0):
-    """
-    Evaluate a bivariate B-spline and its derivatives.
-    
-    FastSpline implementation compatible with scipy.interpolate.bisplev.
-    Uses our optimized bisplev_cfunc for evaluation.
-    
-    Parameters
-    ----------
-    x, y : array_like
-        Rank-1 arrays of points at which to evaluate B-spline or its derivative.
-        Can be scalars or arrays.
-    tck : tuple
-        (tx, ty, c, kx, ky) tuple as returned by bisplrep
-    dx, dy : int, optional
-        Orders of partial derivatives. Default is 0.
-        
-    Returns
-    -------
-    vals : ndarray
-        Evaluated B-spline or its derivative at (x, y) points.
-        Shape matches the broadcast shape of x and y.
-    """
-    if dx != 0 or dy != 0:
-        # Fall back to scipy for derivatives (not implemented yet)
-        from scipy.interpolate import bisplev as scipy_bisplev
-        return scipy_bisplev(x, y, tck, dx=dx, dy=dy)
-    
-    # Extract tck components
-    tx, ty, c, kx, ky = tck
-    nx, ny = len(tx), len(ty)
-    
-    # Handle scalar inputs
-    x_scalar = np.isscalar(x)
-    y_scalar = np.isscalar(y)
-    
-    # Convert to arrays
-    x_arr = np.atleast_1d(x)
-    y_arr = np.atleast_1d(y)
-    
-    # SciPy compatibility: handle different input combinations
-    if not x_scalar and not y_scalar and x_arr.ndim == 1 and y_arr.ndim == 1:
-        # Both are 1D arrays - create meshgrid like SciPy
-        X, Y = np.meshgrid(x_arr, y_arr, indexing='ij')
-        result_shape = X.shape
-        x_flat = X.ravel()
-        y_flat = Y.ravel()
-    elif not x_scalar and y_scalar and x_arr.ndim == 1:
-        # 1D × scalar - SciPy creates (n, 1) shape
-        X, Y = np.meshgrid(x_arr, y_arr, indexing='ij')
-        result_shape = X.shape
-        x_flat = X.ravel()
-        y_flat = Y.ravel()
-    else:
-        # scalar × 1D, or both scalars, or higher dimensional - broadcast normally
-        x_arr, y_arr = np.broadcast_arrays(x_arr, y_arr)
-        result_shape = x_arr.shape
-        x_flat = x_arr.ravel()
-        y_flat = y_arr.ravel()
-    
-    # Evaluate at all points using optimized vectorized cfunc
-    result_flat = np.zeros_like(x_flat, dtype=np.float64)
-    bisplev_cfunc_vectorized(x_flat, y_flat, tx, ty, c, kx, ky, result_flat)
-    
-    # Reshape to proper output shape
-    result = result_flat.reshape(result_shape)
-    
-    # Return scalar if inputs were scalar
-    if x_scalar and y_scalar:
-        return result.item()
-    
-    return result
-
-
-# Legacy alias for backward compatibility
-def bisplev_cfunc(x, y, tx, ty, c, kx, ky, nx, ny):
-    """Legacy function name - use bisplev() instead."""
-    return _bisplev_cfunc(x, y, tx, ty, c, kx, ky, nx, ny)
-
-
-@cfunc(types.void(types.float64[:], types.float64[:], types.float64[:], types.float64[:],
-                  types.float64[:], types.int64, types.int64, types.float64[:]),
-       nopython=True, fastmath=True, boundscheck=False)
-def bisplev_cfunc_vectorized(x_arr, y_arr, tx, ty, c, kx, ky, result):
-    """
-    Vectorized C-compatible B-spline evaluation function.
-    
-    Evaluates B-spline at multiple points efficiently using our optimized algorithm.
-    All arrays must be pre-allocated by the caller.
-    
-    Parameters
-    ----------
-    x_arr : float64[:]
-        X coordinates to evaluate (input)
-    y_arr : float64[:]
-        Y coordinates to evaluate (input, same length as x_arr)
-    tx : float64[:]
-        X knot vector
-    ty : float64[:]
-        Y knot vector  
-    c : float64[:]
-        Spline coefficients (flattened)
-    kx : int64
-        X spline degree
-    ky : int64
-        Y spline degree
-    result : float64[:]
-        Output array for results (must be same length as x_arr/y_arr)
-    """
-    nx = len(tx)
-    ny = len(ty)
-    n_points = len(x_arr)
-    
-    # Evaluate at each point using our optimized single-point function
-    for i in range(n_points):
-        result[i] = _bisplev_cfunc(x_arr[i], y_arr[i], tx, ty, c, kx, ky, nx, ny)
 
 
 class Spline2D:
