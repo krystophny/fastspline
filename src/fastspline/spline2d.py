@@ -755,18 +755,32 @@ def bisplev(x, y, tck, dx=0, dy=0):
     x_arr = np.atleast_1d(x)
     y_arr = np.atleast_1d(y)
     
-    # Broadcast to common shape
-    x_arr, y_arr = np.broadcast_arrays(x_arr, y_arr)
+    # SciPy compatibility: handle different input combinations
+    if not x_scalar and not y_scalar and x_arr.ndim == 1 and y_arr.ndim == 1:
+        # Both are 1D arrays - create meshgrid like SciPy
+        X, Y = np.meshgrid(x_arr, y_arr, indexing='ij')
+        result_shape = X.shape
+        x_flat = X.ravel()
+        y_flat = Y.ravel()
+    elif not x_scalar and y_scalar and x_arr.ndim == 1:
+        # 1D × scalar - SciPy creates (n, 1) shape
+        X, Y = np.meshgrid(x_arr, y_arr, indexing='ij')
+        result_shape = X.shape
+        x_flat = X.ravel()
+        y_flat = Y.ravel()
+    else:
+        # scalar × 1D, or both scalars, or higher dimensional - broadcast normally
+        x_arr, y_arr = np.broadcast_arrays(x_arr, y_arr)
+        result_shape = x_arr.shape
+        x_flat = x_arr.ravel()
+        y_flat = y_arr.ravel()
     
     # Evaluate at all points using optimized vectorized cfunc
-    result = np.zeros_like(x_arr, dtype=np.float64)
-    
-    # Use vectorized cfunc for better performance
-    x_flat = x_arr.ravel()
-    y_flat = y_arr.ravel()
-    result_flat = result.ravel()
-    
+    result_flat = np.zeros_like(x_flat, dtype=np.float64)
     bisplev_cfunc_vectorized(x_flat, y_flat, tx, ty, c, kx, ky, result_flat)
+    
+    # Reshape to proper output shape
+    result = result_flat.reshape(result_shape)
     
     # Return scalar if inputs were scalar
     if x_scalar and y_scalar:
