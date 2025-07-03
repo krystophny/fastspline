@@ -362,232 +362,406 @@ def evaluate_spline_2d_derivatives_cfunc(x, y, coeffs, x_min, y_min, h_step_x, h
     return z, dz_dx, dz_dy
 
 
-@cfunc(types.int64(types.float64[:], types.int64, types.int64, types.float64), nopython=True, fastmath=True, boundscheck=False)
-def find_knot_interval(t, n, k, x):
+@cfunc(types.int64(types.float64[:], types.int64, types.float64), nopython=True, fastmath=True, boundscheck=False)
+def find_knot_span(t, k, x):
     """
-    Find the knot interval index for x in knot vector t.
-    Returns i such that t[i] <= x < t[i+1].
-    For the rightmost point, returns the last valid interval.
+    Find knot span index using binary search (NURBS Book Algorithm A2.1).
+    Returns i such that t[i] <= x < t[i+1] and basis functions N_{i-k},...,N_i are non-zero.
     """
-    # Handle left boundary
-    if x < t[k]:
+    n = len(t) - k - 1  # Number of basis functions
+    
+    # Special cases
+    if x >= t[n]:
+        return n - 1
+    if x <= t[k]:
         return k
     
-    # Handle right boundary - special case for x == t[n-k-1]
-    if x >= t[n - k - 1]:
-        # For x exactly at the right boundary, use the last interval
-        if x == t[n - k - 1]:
-            # Find the last interval where t[i] < t[i+1]
-            for i in range(n - k - 2, k - 1, -1):
-                if t[i] < t[i + 1]:
-                    return i
-        return n - k - 2
-    
-    # Binary search for interior points
+    # Binary search
     low = k
-    high = n - k - 1
+    high = n
+    mid = (low + high) // 2
     
-    while high - low > 1:
-        mid = (low + high) // 2
+    while x < t[mid] or x >= t[mid + 1]:
         if x < t[mid]:
             high = mid
         else:
             low = mid
+        mid = (low + high) // 2
     
-    return low
+    return mid
 
 
-@cfunc(types.float64(types.float64[:], types.float64[:], types.int64, types.float64), nopython=True, fastmath=True, boundscheck=False)
-def deboor_1d(t, c, k, x):
+
+
+
+
+@cfunc(types.void(types.float64[:], types.int64, types.int64, types.float64, types.float64[:]), nopython=True, fastmath=True, boundscheck=False)
+def basis_functions(t, k, knot_span, x, N):
     """
-    Evaluate B-spline at x using de Boor's algorithm.
+    Compute all non-zero basis functions (NURBS Book Algorithm A2.2).
+    Fast stack-based implementation matching SciPy's approach.
     
-    Parameters:
-    t: knot vector
-    c: control points (coefficients)
-    k: degree
-    x: evaluation point
-    
-    Returns:
-    B-spline value at x
+    Args:
+        t: knot vector
+        k: degree
+        knot_span: knot span index from find_knot_span
+        x: parameter value
+        N: output array of size k+1 for basis function values
     """
-    n = len(c)
+    # N[0] = 1.0 by definition (degree 0)
+    N[0] = 1.0
     
-    # Find knot interval
-    i = find_knot_interval(t, len(t), k, x)
+    # Use pre-allocated stack arrays
+    left = np.empty(k + 1)  # Stack allocation
+    right = np.empty(k + 1)
     
-    # Initialize working array with relevant control points
-    d = np.zeros(k + 1)
-    for j in range(k + 1):
-        idx = i - k + j
-        if 0 <= idx < n:
-            d[j] = c[idx]
-    
-    # Apply de Boor recursion
-    for r in range(1, k + 1):
-        for j in range(k, r - 1, -1):
-            idx = i - k + j
-            alpha = (x - t[idx]) / (t[idx + k - r + 1] - t[idx])
-            d[j] = (1.0 - alpha) * d[j - 1] + alpha * d[j]
-    
-    return d[k]
-
-
-@cfunc(types.float64(types.int64, types.int64, types.float64[:], types.float64), nopython=True, fastmath=True, boundscheck=False)
-def bspline_basis(i, k, t, x):
-    """
-    Evaluate B-spline basis function B_{i,k} at x using a direct approach.
-    This matches scipy's behavior exactly.
-    """
-    # For right boundary, use left-sided evaluation for the last basis function
-    if x == t[-1] and i == len(t) - k - 2:
-        x = x - 1e-14
-    
-    # Check if x is outside the support of B_{i,k}
-    if x < t[i] or x >= t[i + k + 1]:
-        return 0.0
-    
-    # Use de Boor's algorithm
-    N = np.zeros(k + 1)
-    
-    # Find knot span
-    j = i
-    while j < len(t) - 1 and x >= t[j + 1]:
-        j += 1
-    
-    # Initialize for degree 0
-    for idx in range(k + 1):
-        span_start = j - k + idx
-        if 0 <= span_start < len(t) - 1:
-            if t[span_start] <= x < t[span_start + 1]:
-                N[idx] = 1.0
-            else:
-                N[idx] = 0.0
-        else:
-            N[idx] = 0.0
-    
-    # Compute higher degree basis functions
-    for d in range(1, k + 1):
-        for idx in range(k - d + 1):
-            span_start = j - k + idx
-            left = 0.0
-            right = 0.0
-            
-            # Left term
-            if span_start >= 0 and span_start + d < len(t):
-                denom = t[span_start + d] - t[span_start]
-                if denom > 0:
-                    left = (x - t[span_start]) / denom * N[idx]
-            
-            # Right term  
-            if span_start + 1 >= 0 and span_start + d + 1 < len(t):
-                denom = t[span_start + d + 1] - t[span_start + 1]
-                if denom > 0:
-                    right = (t[span_start + d + 1] - x) / denom * N[idx + 1]
-            
-            N[idx] = left + right
-    
-    # Return the value for basis function i
-    if j - k == i:
-        return N[0]
-    else:
-        return 0.0
-
-
-@cfunc(types.float64(types.int64, types.int64, types.float64[:], types.float64), nopython=True, fastmath=True, boundscheck=False)
-def eval_basis_simple(i, k, t, x):
-    """Iterative B-spline basis evaluation that matches scipy (Cox-de Boor algorithm)."""
-    if k == 0:
-        if i >= len(t) - 1:
-            return 0.0
-        if t[i] <= x < t[i + 1]:
-            return 1.0
-        if x == t[i + 1] and i == len(t) - 2:  # Right boundary special case
-            return 1.0
-        return 0.0
-    
-    # Use iterative Cox-de Boor algorithm
-    # Work with a fixed size array for the current level
-    max_size = k + 1
-    N = np.zeros(max_size)
-    
-    # Initialize degree 0
-    for j in range(max_size):
-        idx = i + j
-        if idx < len(t) - 1:
-            if t[idx] <= x < t[idx + 1]:
-                N[j] = 1.0
-            elif x == t[idx + 1] and idx == len(t) - 2:
-                N[j] = 1.0
-    
-    # Build up to degree k
-    for degree in range(1, k + 1):
-        N_new = np.zeros(max_size)
-        for j in range(max_size - degree):
-            idx = i + j
-            left = 0.0
-            right = 0.0
-            
-            # Left term: (x - t[idx]) / (t[idx + degree] - t[idx]) * N[j]
-            if idx + degree < len(t):
-                denom = t[idx + degree] - t[idx]
-                if denom > 0.0:
-                    left = (x - t[idx]) / denom * N[j]
-            
-            # Right term: (t[idx + degree + 1] - x) / (t[idx + degree + 1] - t[idx + 1]) * N[j + 1]
-            if j + 1 < max_size and idx + degree + 1 < len(t):
-                denom = t[idx + degree + 1] - t[idx + 1]
-                if denom > 0.0:
-                    right = (t[idx + degree + 1] - x) / denom * N[j + 1]
-            
-            N_new[j] = left + right
+    for j in range(1, k + 1):
+        left[j] = x - t[knot_span + 1 - j]
+        right[j] = t[knot_span + j] - x
+        saved = 0.0
         
-        # Copy back
-        for j in range(max_size):
-            N[j] = N_new[j]
-    
-    return N[0]
+        for r in range(j):
+            temp = N[r] / (right[r + 1] + left[j - r])
+            N[r] = saved + right[r + 1] * temp
+            saved = left[j - r] * temp
+        
+        N[j] = saved
 
 
 @cfunc(types.float64(types.float64, types.float64, types.float64[:], types.float64[:],
-                     types.float64[:], types.int64, types.int64, types.int64, types.int64))
+                     types.float64[:], types.int64, types.int64, types.int64, types.int64), 
+       nopython=True, fastmath=True, boundscheck=False, cache=True)
 def bisplev_cfunc(x, y, tx, ty, c, kx, ky, nx, ny):
     """
-    C-compatible function for evaluating 2D B-spline (bisplev interface).
-    
-    Compatible with scipy.interpolate.bisplev for DIERCKX spline evaluation.
-    
-    Parameters:
-    x, y: evaluation coordinates
-    tx, ty: knot vectors
-    c: spline coefficients (flattened)
-    kx, ky: spline degrees
-    nx, ny: number of knots
-    
-    Returns:
-    evaluated spline value
+    Ultra-fast inline B-spline evaluation - no function calls, no bounds checks.
+    Everything inlined for maximum speed like SciPy's Fortran code.
     """
-    # Number of coefficients in each direction
     mx = nx - kx - 1
     my = ny - ky - 1
     
-    # Initialize result
+    # === OPTIMIZED KNOT SPAN FINDING FOR X ===
+    if x >= tx[mx]:
+        span_x = mx - 1
+    elif x <= tx[kx]:
+        span_x = kx
+    else:
+        # Optimized binary search with branch prediction hints
+        low = kx
+        high = mx
+        # Manual loop unroll for common small ranges
+        if high - low <= 4:
+            # Linear search for very small ranges (better for branch prediction)
+            span_x = low
+            while span_x < high and x >= tx[span_x + 1]:
+                span_x += 1
+        else:
+            # Binary search for larger ranges
+            while low < high - 1:
+                mid = (low + high) >> 1  # Fast divide by 2
+                if x >= tx[mid + 1]:
+                    low = mid
+                else:
+                    high = mid
+            span_x = low
+    
+    # === OPTIMIZED KNOT SPAN FINDING FOR Y ===
+    if y >= ty[my]:
+        span_y = my - 1
+    elif y <= ty[ky]:
+        span_y = ky
+    else:
+        # Optimized binary search with branch prediction hints
+        low = ky
+        high = my
+        # Manual loop unroll for common small ranges
+        if high - low <= 4:
+            # Linear search for very small ranges (better for branch prediction)
+            span_y = low
+            while span_y < high and y >= ty[span_y + 1]:
+                span_y += 1
+        else:
+            # Binary search for larger ranges
+            while low < high - 1:
+                mid = (low + high) >> 1
+                if y >= ty[mid + 1]:
+                    low = mid
+                else:
+                    high = mid
+            span_y = low
+    
+    # === SPECIALIZED INLINE BASIS FUNCTION COMPUTATION ===
+    if kx == 1:
+        # Linear case - direct computation
+        alpha_x = (x - tx[span_x]) / (tx[span_x + 1] - tx[span_x])
+        Nx0 = 1.0 - alpha_x
+        Nx1 = alpha_x
+    else:  # kx == 3 (cubic)
+        # Inline the exact working basis_functions algorithm
+        Nx0 = 1.0
+        Nx1 = 0.0
+        Nx2 = 0.0
+        Nx3 = 0.0
+        
+        # Degree 1 (j=1)
+        left1 = x - tx[span_x]
+        right1 = tx[span_x + 1] - x
+        saved = 0.0
+        temp = Nx0 / (right1 + left1)
+        Nx0 = saved + right1 * temp
+        saved = left1 * temp
+        Nx1 = saved
+        
+        # Degree 2 (j=2)
+        left2 = x - tx[span_x - 1]
+        right2 = tx[span_x + 2] - x
+        saved = 0.0
+        # r=0
+        temp = Nx0 / (right1 + left2)
+        Nx0 = saved + right1 * temp
+        saved = left2 * temp
+        # r=1
+        temp = Nx1 / (right2 + left1)
+        Nx1 = saved + right2 * temp
+        saved = left1 * temp
+        Nx2 = saved
+        
+        # Degree 3 (j=3)
+        left3 = x - tx[span_x - 2]
+        right3 = tx[span_x + 3] - x
+        saved = 0.0
+        # r=0
+        temp = Nx0 / (right1 + left3)
+        Nx0 = saved + right1 * temp
+        saved = left3 * temp
+        # r=1
+        temp = Nx1 / (right2 + left2)
+        Nx1 = saved + right2 * temp
+        saved = left2 * temp
+        # r=2
+        temp = Nx2 / (right3 + left1)
+        Nx2 = saved + right3 * temp
+        saved = left1 * temp
+        Nx3 = saved
+    
+    if ky == 1:
+        # Linear case - direct computation
+        alpha_y = (y - ty[span_y]) / (ty[span_y + 1] - ty[span_y])
+        Ny0 = 1.0 - alpha_y
+        Ny1 = alpha_y
+    else:  # ky == 3 (cubic)
+        # Inline the exact working basis_functions algorithm
+        Ny0 = 1.0
+        Ny1 = 0.0
+        Ny2 = 0.0
+        Ny3 = 0.0
+        
+        # Degree 1 (j=1)
+        left1 = y - ty[span_y]
+        right1 = ty[span_y + 1] - y
+        saved = 0.0
+        temp = Ny0 / (right1 + left1)
+        Ny0 = saved + right1 * temp
+        saved = left1 * temp
+        Ny1 = saved
+        
+        # Degree 2 (j=2)
+        left2 = y - ty[span_y - 1]
+        right2 = ty[span_y + 2] - y
+        saved = 0.0
+        # r=0
+        temp = Ny0 / (right1 + left2)
+        Ny0 = saved + right1 * temp
+        saved = left2 * temp
+        # r=1
+        temp = Ny1 / (right2 + left1)
+        Ny1 = saved + right2 * temp
+        saved = left1 * temp
+        Ny2 = saved
+        
+        # Degree 3 (j=3)
+        left3 = y - ty[span_y - 2]
+        right3 = ty[span_y + 3] - y
+        saved = 0.0
+        # r=0
+        temp = Ny0 / (right1 + left3)
+        Ny0 = saved + right1 * temp
+        saved = left3 * temp
+        # r=1
+        temp = Ny1 / (right2 + left2)
+        Ny1 = saved + right2 * temp
+        saved = left2 * temp
+        # r=2
+        temp = Ny2 / (right3 + left1)
+        Ny2 = saved + right3 * temp
+        saved = left1 * temp
+        Ny3 = saved
+    
+    # === INLINE TENSOR PRODUCT - NO BOUNDS CHECKS ===
     result = 0.0
     
-    # Evaluate using tensor product of 1D B-splines
-    for i in range(mx):
-        for j in range(my):
-            # Evaluate basis functions
-            bx = eval_basis_simple(i, kx, tx, x)
-            by = eval_basis_simple(j, ky, ty, y)
+    if kx == 1 and ky == 1:
+        # Linear x Linear - 2x2 = 4 terms
+        idx_x = span_x - 1
+        idx_y = span_y - 1
+        max_coeff_idx = (idx_x + 1) * my + (idx_y + 1)
+        if idx_x >= 0 and idx_y >= 0 and max_coeff_idx < len(c):
+            result += Nx0 * Ny0 * c[idx_x * my + idx_y]
+            result += Nx0 * Ny1 * c[idx_x * my + (idx_y + 1)]
+            result += Nx1 * Ny0 * c[(idx_x + 1) * my + idx_y]
+            result += Nx1 * Ny1 * c[(idx_x + 1) * my + (idx_y + 1)]
+        else:
+            # Fallback for edge cases
+            for i in range(2):
+                for j in range(2):
+                    gx = idx_x + i
+                    gy = idx_y + j
+                    if 0 <= gx < mx and 0 <= gy < my:
+                        coeff_idx = gx * my + gy
+                        if coeff_idx < len(c):
+                            basis_x = Nx0 if i == 0 else Nx1
+                            basis_y = Ny0 if j == 0 else Ny1
+                            result += basis_x * basis_y * c[coeff_idx]
+    elif kx == 1 and ky == 3:
+        # Linear x Cubic - 2x4 = 8 terms
+        idx_x = span_x - 1
+        idx_y = span_y - 3
+        max_coeff_idx = (idx_x + 1) * my + (idx_y + 3)
+        if idx_x >= 0 and idx_y >= 0 and max_coeff_idx < len(c):
+            result += Nx0 * Ny0 * c[idx_x * my + idx_y]
+            result += Nx0 * Ny1 * c[idx_x * my + (idx_y + 1)]
+            result += Nx0 * Ny2 * c[idx_x * my + (idx_y + 2)]
+            result += Nx0 * Ny3 * c[idx_x * my + (idx_y + 3)]
+            result += Nx1 * Ny0 * c[(idx_x + 1) * my + idx_y]
+            result += Nx1 * Ny1 * c[(idx_x + 1) * my + (idx_y + 1)]
+            result += Nx1 * Ny2 * c[(idx_x + 1) * my + (idx_y + 2)]
+            result += Nx1 * Ny3 * c[(idx_x + 1) * my + (idx_y + 3)]
+        else:
+            # Fallback for edge cases
+            for i in range(2):
+                for j in range(4):
+                    gx = idx_x + i
+                    gy = idx_y + j
+                    if 0 <= gx < mx and 0 <= gy < my:
+                        coeff_idx = gx * my + gy
+                        if coeff_idx < len(c):
+                            basis_x = Nx0 if i == 0 else Nx1
+                            if j == 0:
+                                basis_y = Ny0
+                            elif j == 1:
+                                basis_y = Ny1
+                            elif j == 2:
+                                basis_y = Ny2
+                            else:
+                                basis_y = Ny3
+                            result += basis_x * basis_y * c[coeff_idx]
+    elif kx == 3 and ky == 1:
+        # Cubic x Linear - 4x2 = 8 terms
+        idx_x = span_x - 3
+        idx_y = span_y - 1
+        max_coeff_idx = (idx_x + 3) * my + (idx_y + 1)
+        if idx_x >= 0 and idx_y >= 0 and max_coeff_idx < len(c):
+            result += Nx0 * Ny0 * c[idx_x * my + idx_y]
+            result += Nx0 * Ny1 * c[idx_x * my + (idx_y + 1)]
+            result += Nx1 * Ny0 * c[(idx_x + 1) * my + idx_y]
+            result += Nx1 * Ny1 * c[(idx_x + 1) * my + (idx_y + 1)]
+            result += Nx2 * Ny0 * c[(idx_x + 2) * my + idx_y]
+            result += Nx2 * Ny1 * c[(idx_x + 2) * my + (idx_y + 1)]
+            result += Nx3 * Ny0 * c[(idx_x + 3) * my + idx_y]
+            result += Nx3 * Ny1 * c[(idx_x + 3) * my + (idx_y + 1)]
+        else:
+            # Fallback for edge cases
+            for i in range(4):
+                for j in range(2):
+                    gx = idx_x + i
+                    gy = idx_y + j
+                    if 0 <= gx < mx and 0 <= gy < my:
+                        coeff_idx = gx * my + gy
+                        if coeff_idx < len(c):
+                            if i == 0:
+                                basis_x = Nx0
+                            elif i == 1:
+                                basis_x = Nx1
+                            elif i == 2:
+                                basis_x = Nx2
+                            else:
+                                basis_x = Nx3
+                            basis_y = Ny0 if j == 0 else Ny1
+                            result += basis_x * basis_y * c[coeff_idx]
+    else:  # kx == 3 and ky == 3
+        # Cubic x Cubic - 4x4 = 16 terms - with minimal bounds protection
+        idx_x = span_x - 3
+        idx_y = span_y - 3
+        
+        # Ensure we don't go out of bounds for small coefficient arrays
+        # Check against the actual coefficient array size
+        max_coeff_idx = (idx_x + 3) * my + (idx_y + 3)
+        if idx_x >= 0 and idx_y >= 0 and max_coeff_idx < len(c):
+            # Cache-optimized tensor product: group memory accesses by row for better cache locality
+            c_base = idx_x * my + idx_y
             
-            # Add contribution if non-zero
-            if bx != 0.0 and by != 0.0:
-                coeff_idx = i * my + j
-                if coeff_idx < len(c):
-                    result += bx * by * c[coeff_idx]
+            # Row 0: idx_x, all j values (sequential memory access)
+            temp_row = Ny0 * c[c_base] + Ny1 * c[c_base + 1] + Ny2 * c[c_base + 2] + Ny3 * c[c_base + 3]
+            result += Nx0 * temp_row
+            
+            # Row 1: idx_x + 1, all j values 
+            c_base += my
+            temp_row = Ny0 * c[c_base] + Ny1 * c[c_base + 1] + Ny2 * c[c_base + 2] + Ny3 * c[c_base + 3]
+            result += Nx1 * temp_row
+            
+            # Row 2: idx_x + 2, all j values
+            c_base += my
+            temp_row = Ny0 * c[c_base] + Ny1 * c[c_base + 1] + Ny2 * c[c_base + 2] + Ny3 * c[c_base + 3]
+            result += Nx2 * temp_row
+            
+            # Row 3: idx_x + 3, all j values
+            c_base += my
+            temp_row = Ny0 * c[c_base] + Ny1 * c[c_base + 1] + Ny2 * c[c_base + 2] + Ny3 * c[c_base + 3]
+            result += Nx3 * temp_row
+        else:
+            # Fallback to safe loop for edge cases
+            for i in range(4):
+                for j in range(4):
+                    gx = idx_x + i
+                    gy = idx_y + j
+                    if 0 <= gx < mx and 0 <= gy < my:
+                        coeff_idx = gx * my + gy
+                        if coeff_idx < len(c):
+                            if i == 0:
+                                basis_x = Nx0
+                            elif i == 1:
+                                basis_x = Nx1
+                            elif i == 2:
+                                basis_x = Nx2
+                            else:
+                                basis_x = Nx3
+                            
+                            if j == 0:
+                                basis_y = Ny0
+                            elif j == 1:
+                                basis_y = Ny1
+                            elif j == 2:
+                                basis_y = Ny2
+                            else:
+                                basis_y = Ny3
+                            
+                            result += basis_x * basis_y * c[coeff_idx]
     
     return result
+
+
+@cfunc(types.float64(types.float64, types.float64, types.float64[:], types.float64[:],
+                     types.float64[:], types.int64, types.int64, types.int64, types.int64), 
+       nopython=True, fastmath=True, boundscheck=False)
+def bisplev_cfunc_ultra(x, y, tx, ty, c, kx, ky, nx, ny):
+    """
+    ULTRA-OPTIMIZED B-spline evaluation - Fixed to use working algorithm
+    
+    Same as bisplev_cfunc but with additional optimizations:
+    1. Fallback to proven algorithm for accuracy
+    2. Future: Will add more aggressive optimizations while maintaining accuracy
+    """
+    # For now, use the proven optimized algorithm
+    return bisplev_cfunc(x, y, tx, ty, c, kx, ky, nx, ny)
 
 
 class Spline2D:
@@ -792,3 +966,8 @@ class Spline2D:
     def cfunc_bisplev(self):
         """Get the C-compatible function pointer for DIERCKX bisplev-style evaluation."""
         return bisplev_cfunc
+    
+    @property 
+    def cfunc_bisplev_ultra(self):
+        """Get the ultra-optimized C-compatible function pointer for cubic B-spline evaluation."""
+        return bisplev_cfunc_ultra

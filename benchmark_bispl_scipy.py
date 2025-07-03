@@ -251,20 +251,21 @@ def plot_performance_comparison(construction_results, evaluation_results):
         scipy_data = evaluation_results['scipy_bisplev_k1']
         fast_data = evaluation_results['fastspline_bisplev_k1']
         speedup_k1 = np.array(scipy_data['times']) / np.array(fast_data['times'])
-        ax3.semilogx(scipy_data['n_points'], speedup_k1, 
-                    'b-o', linewidth=2, markersize=6, label='k=1 speedup')
+        ax3.plot(scipy_data['n_points'], speedup_k1, 
+                    'b-o', linewidth=2, markersize=6, label='k=1: FastSpline vs SciPy')
     
     if ('scipy_bisplev_k3' in evaluation_results and 
         'fastspline_bisplev_k3' in evaluation_results):
         scipy_data = evaluation_results['scipy_bisplev_k3']
         fast_data = evaluation_results['fastspline_bisplev_k3']
         speedup_k3 = np.array(scipy_data['times']) / np.array(fast_data['times'])
-        ax3.semilogx(scipy_data['n_points'], speedup_k3, 
-                    'r-s', linewidth=2, markersize=6, label='k=3 speedup')
+        ax3.plot(scipy_data['n_points'], speedup_k3, 
+                    'r-s', linewidth=2, markersize=6, label='k=3: SciPy vs FastSpline')
     
     ax3.axhline(y=1, color='black', linestyle='--', alpha=0.5, label='No speedup')
     ax3.set_xlabel('Number of Points')
-    ax3.set_ylabel('Speedup Factor (SciPy time / FastSpline time)')
+    ax3.set_ylabel('Speedup Factor')
+    ax3.set_ylim(bottom=0)  # Start y-axis at 0
     ax3.grid(True, alpha=0.3)
     ax3.legend()
     
@@ -310,8 +311,8 @@ def main():
     print("Comparing our cache-optimized bisplev_cfunc with SciPy's")
     print("bisplrep/bisplev for scattered 2D B-spline interpolation.\n")
     
-    # Test with limited point distribution for quick comparison
-    n_points_list = [100, 200, 500]  # Limited range for quick test
+    # Test with targeted range for performance optimization
+    n_points_list = [100, 500, 1000, 2000]  # Focus on key sizes
     
     print(f"Testing with point counts: {n_points_list}\n")
     
@@ -326,15 +327,30 @@ def main():
     print(f"\nPerformance Summary")
     print("=" * 50)
     
+    # Linear splines (k=1) comparison
+    if ('scipy_bisplev_k1' in evaluation_results and 
+        'fastspline_bisplev_k1' in evaluation_results):
+        scipy_times_k1 = np.array(evaluation_results['scipy_bisplev_k1']['times'])
+        fast_times_k1 = np.array(evaluation_results['fastspline_bisplev_k1']['times'])
+        avg_speedup_k1 = np.mean(scipy_times_k1 / fast_times_k1)
+        
+        print(f"Linear splines (k=1):")
+        print(f"  FastSpline speedup: {avg_speedup_k1:.2f}x {'🚀 FASTER!' if avg_speedup_k1 > 1.0 else ''}")
+        print(f"  FastSpline time: {np.mean(fast_times_k1):.1f}ms avg")
+        print(f"  SciPy time: {np.mean(scipy_times_k1):.1f}ms avg")
+        print()
+    
+    # Cubic splines (k=3) comparison
     if ('scipy_bisplev_k3' in evaluation_results and 
         'fastspline_bisplev_k3' in evaluation_results):
-        scipy_times = np.array(evaluation_results['scipy_bisplev_k3']['times'])
-        fast_times = np.array(evaluation_results['fastspline_bisplev_k3']['times'])
-        avg_speedup = np.mean(scipy_times / fast_times)
+        scipy_times_k3 = np.array(evaluation_results['scipy_bisplev_k3']['times'])
+        fast_times_k3 = np.array(evaluation_results['fastspline_bisplev_k3']['times'])
+        avg_speedup_k3 = np.mean(scipy_times_k3 / fast_times_k3)
         
-        print(f"Average bisplev speedup (k=3): {avg_speedup:.2f}x")
-        print(f"FastSpline evaluation time: {np.mean(fast_times):.1f}ms avg")
-        print(f"SciPy evaluation time: {np.mean(scipy_times):.1f}ms avg")
+        print(f"Cubic splines (k=3):")
+        print(f"  SciPy speedup: {1/avg_speedup_k3:.2f}x {'(target for optimization)' if avg_speedup_k3 < 1.0 else ''}")
+        print(f"  FastSpline time: {np.mean(fast_times_k3):.1f}ms avg")
+        print(f"  SciPy time: {np.mean(scipy_times_k3):.1f}ms avg")
     
     # Plot results
     plot_performance_comparison(construction_results, evaluation_results)

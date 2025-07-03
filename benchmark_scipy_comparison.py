@@ -82,8 +82,8 @@ def benchmark_construction_scipy_vs_fastspline(n_points_list):
         # We'll use LinearNDInterpolator for fair comparison
         scipy_linear = LinearNDInterpolator(np.column_stack((x, y)), z)
         times_row.append((time.perf_counter() - start) * 1000)
-        results['scipy_linear']['n_points'].append(n_points)
-        results['scipy_linear']['times'].append(times_row[-1])
+        results['scipy_linear_nd']['n_points'].append(n_points)
+        results['scipy_linear_nd']['times'].append(times_row[2])
         
         # SciPy Cubic (using CloughTocher2DInterpolator)
         start = time.perf_counter()
