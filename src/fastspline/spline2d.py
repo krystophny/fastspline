@@ -433,16 +433,203 @@ def basis_functions(t, k, knot_span, x, N):
        nopython=True, fastmath=True, boundscheck=False, cache=True)
 def bisplev_cfunc(x, y, tx, ty, c, kx, ky, nx, ny):
     """
-    Optimized B-spline evaluation using proper Cox-de Boor recursion.
-    Uses the working basis_functions algorithm to ensure accuracy.
+    Step-by-step optimized B-spline evaluation.
+    Step 1: Inline linear basis functions for k=1 case.
     """
     mx = nx - kx - 1
     my = ny - ky - 1
     
-    # Find knot spans using binary search
+    # Find knot spans using binary search (keep working version for now)
     span_x = find_knot_span(tx, kx, x)
     span_y = find_knot_span(ty, ky, y)
     
+    # === STEP 1 OPTIMIZATION: Inline linear basis functions ===
+    if kx == 1 and ky == 1:
+        # Linear x Linear case - inline everything
+        # Linear basis functions: N0 = (t[i+1] - x) / (t[i+1] - t[i]), N1 = (x - t[i]) / (t[i+1] - t[i])
+        denom_x = tx[span_x + 1] - tx[span_x]
+        alpha_x = (x - tx[span_x]) / denom_x
+        Nx0 = 1.0 - alpha_x
+        Nx1 = alpha_x
+        
+        denom_y = ty[span_y + 1] - ty[span_y]
+        alpha_y = (y - ty[span_y]) / denom_y
+        Ny0 = 1.0 - alpha_y
+        Ny1 = alpha_y
+        
+        # Tensor product: 2x2 = 4 terms
+        idx_x = span_x - 1
+        idx_y = span_y - 1
+        
+        result = 0.0
+        result += Nx0 * Ny0 * c[idx_x * my + idx_y]
+        result += Nx0 * Ny1 * c[idx_x * my + (idx_y + 1)]
+        result += Nx1 * Ny0 * c[(idx_x + 1) * my + idx_y]
+        result += Nx1 * Ny1 * c[(idx_x + 1) * my + (idx_y + 1)]
+        
+        return result
+    
+    # === STEP 3 OPTIMIZATION: Mixed linear/cubic cases ===
+    elif kx == 1 and ky == 3:
+        # Linear x Cubic case - inline linear, use function for cubic
+        denom_x = tx[span_x + 1] - tx[span_x]
+        alpha_x = (x - tx[span_x]) / denom_x
+        Nx0 = 1.0 - alpha_x
+        Nx1 = alpha_x
+        
+        # Use basis_functions for cubic y
+        Ny = np.zeros(4, dtype=np.float64)
+        basis_functions(ty, 3, span_y, y, Ny)
+        
+        # Tensor product: 2x4 = 8 terms
+        idx_x = span_x - 1
+        idx_y = span_y - 3
+        
+        result = 0.0
+        for j in range(4):
+            result += Nx0 * Ny[j] * c[idx_x * my + (idx_y + j)]
+            result += Nx1 * Ny[j] * c[(idx_x + 1) * my + (idx_y + j)]
+        
+        return result
+        
+    elif kx == 3 and ky == 1:
+        # Cubic x Linear case - use function for cubic, inline linear
+        Nx = np.zeros(4, dtype=np.float64)
+        basis_functions(tx, 3, span_x, x, Nx)
+        
+        denom_y = ty[span_y + 1] - ty[span_y]
+        alpha_y = (y - ty[span_y]) / denom_y
+        Ny0 = 1.0 - alpha_y
+        Ny1 = alpha_y
+        
+        # Tensor product: 4x2 = 8 terms
+        idx_x = span_x - 3
+        idx_y = span_y - 1
+        
+        result = 0.0
+        for i in range(4):
+            result += Nx[i] * Ny0 * c[(idx_x + i) * my + idx_y]
+            result += Nx[i] * Ny1 * c[(idx_x + i) * my + (idx_y + 1)]
+        
+        return result
+    
+    # === STEP 4 OPTIMIZATION: Inline cubic x cubic case ===
+    elif kx == 3 and ky == 3:
+        # Inline cubic basis functions for both x and y (most common case)
+        
+        # Inline cubic basis functions for x (copy exact algorithm from basis_functions)
+        Nx0, Nx1, Nx2, Nx3 = 1.0, 0.0, 0.0, 0.0
+        
+        # j=1
+        left1_x = x - tx[span_x]
+        right1_x = tx[span_x + 1] - x
+        saved = 0.0
+        temp = Nx0 / (right1_x + left1_x)
+        Nx0 = saved + right1_x * temp
+        saved = left1_x * temp
+        Nx1 = saved
+        
+        # j=2
+        left2_x = x - tx[span_x - 1]
+        right2_x = tx[span_x + 2] - x
+        saved = 0.0
+        # r=0
+        temp = Nx0 / (right1_x + left2_x)
+        Nx0 = saved + right1_x * temp
+        saved = left2_x * temp
+        # r=1
+        temp = Nx1 / (right2_x + left1_x)
+        Nx1 = saved + right2_x * temp
+        saved = left1_x * temp
+        Nx2 = saved
+        
+        # j=3
+        left3_x = x - tx[span_x - 2]
+        right3_x = tx[span_x + 3] - x
+        saved = 0.0
+        # r=0
+        temp = Nx0 / (right1_x + left3_x)
+        Nx0 = saved + right1_x * temp
+        saved = left3_x * temp
+        # r=1
+        temp = Nx1 / (right2_x + left2_x)
+        Nx1 = saved + right2_x * temp
+        saved = left2_x * temp
+        # r=2
+        temp = Nx2 / (right3_x + left1_x)
+        Nx2 = saved + right3_x * temp
+        saved = left1_x * temp
+        Nx3 = saved
+        
+        # Inline cubic basis functions for y (copy exact algorithm from basis_functions)
+        Ny0, Ny1, Ny2, Ny3 = 1.0, 0.0, 0.0, 0.0
+        
+        # j=1
+        left1_y = y - ty[span_y]
+        right1_y = ty[span_y + 1] - y
+        saved = 0.0
+        temp = Ny0 / (right1_y + left1_y)
+        Ny0 = saved + right1_y * temp
+        saved = left1_y * temp
+        Ny1 = saved
+        
+        # j=2
+        left2_y = y - ty[span_y - 1]
+        right2_y = ty[span_y + 2] - y
+        saved = 0.0
+        # r=0
+        temp = Ny0 / (right1_y + left2_y)
+        Ny0 = saved + right1_y * temp
+        saved = left2_y * temp
+        # r=1
+        temp = Ny1 / (right2_y + left1_y)
+        Ny1 = saved + right2_y * temp
+        saved = left1_y * temp
+        Ny2 = saved
+        
+        # j=3
+        left3_y = y - ty[span_y - 2]
+        right3_y = ty[span_y + 3] - y
+        saved = 0.0
+        # r=0
+        temp = Ny0 / (right1_y + left3_y)
+        Ny0 = saved + right1_y * temp
+        saved = left3_y * temp
+        # r=1
+        temp = Ny1 / (right2_y + left2_y)
+        Ny1 = saved + right2_y * temp
+        saved = left2_y * temp
+        # r=2
+        temp = Ny2 / (right3_y + left1_y)
+        Ny2 = saved + right3_y * temp
+        saved = left1_y * temp
+        Ny3 = saved
+        
+        # Tensor product: 4x4 = 16 terms (unrolled for speed)
+        idx_x = span_x - 3
+        idx_y = span_y - 3
+        
+        result = 0.0
+        result += Nx0 * Ny0 * c[idx_x * my + idx_y]
+        result += Nx0 * Ny1 * c[idx_x * my + (idx_y + 1)]
+        result += Nx0 * Ny2 * c[idx_x * my + (idx_y + 2)]
+        result += Nx0 * Ny3 * c[idx_x * my + (idx_y + 3)]
+        result += Nx1 * Ny0 * c[(idx_x + 1) * my + idx_y]
+        result += Nx1 * Ny1 * c[(idx_x + 1) * my + (idx_y + 1)]
+        result += Nx1 * Ny2 * c[(idx_x + 1) * my + (idx_y + 2)]
+        result += Nx1 * Ny3 * c[(idx_x + 1) * my + (idx_y + 3)]
+        result += Nx2 * Ny0 * c[(idx_x + 2) * my + idx_y]
+        result += Nx2 * Ny1 * c[(idx_x + 2) * my + (idx_y + 1)]
+        result += Nx2 * Ny2 * c[(idx_x + 2) * my + (idx_y + 2)]
+        result += Nx2 * Ny3 * c[(idx_x + 2) * my + (idx_y + 3)]
+        result += Nx3 * Ny0 * c[(idx_x + 3) * my + idx_y]
+        result += Nx3 * Ny1 * c[(idx_x + 3) * my + (idx_y + 1)]
+        result += Nx3 * Ny2 * c[(idx_x + 3) * my + (idx_y + 2)]
+        result += Nx3 * Ny3 * c[(idx_x + 3) * my + (idx_y + 3)]
+        
+        return result
+    
+    # Fall back to general case for other combinations
     # Compute basis functions using the working algorithm
     Nx = np.zeros(kx + 1, dtype=np.float64)
     Ny = np.zeros(ky + 1, dtype=np.float64)
