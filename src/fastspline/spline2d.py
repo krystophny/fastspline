@@ -430,7 +430,7 @@ def _basis_functions(t, k, knot_span, x, N):
 
 @cfunc(types.float64(types.float64, types.float64, types.float64[:], types.float64[:],
                      types.float64[:], types.int64, types.int64, types.int64, types.int64), 
-       nopython=True, fastmath=True, boundscheck=False, cache=True)
+       nopython=True, fastmath=True, boundscheck=False)
 def _bisplev_cfunc(x, y, tx, ty, c, kx, ky, nx, ny):
     """
     Step-by-step optimized B-spline evaluation.
@@ -758,11 +758,15 @@ def bisplev(x, y, tck, dx=0, dy=0):
     # Broadcast to common shape
     x_arr, y_arr = np.broadcast_arrays(x_arr, y_arr)
     
-    # Evaluate at all points
+    # Evaluate at all points using optimized vectorized cfunc
     result = np.zeros_like(x_arr, dtype=np.float64)
-    for i in range(x_arr.size):
-        result.flat[i] = _bisplev_cfunc(x_arr.flat[i], y_arr.flat[i], 
-                                       tx, ty, c, kx, ky, nx, ny)
+    
+    # Use vectorized cfunc for better performance
+    x_flat = x_arr.ravel()
+    y_flat = y_arr.ravel()
+    result_flat = result.ravel()
+    
+    bisplev_cfunc_vectorized(x_flat, y_flat, tx, ty, c, kx, ky, result_flat)
     
     # Return scalar if inputs were scalar
     if x_scalar and y_scalar:
@@ -775,6 +779,44 @@ def bisplev(x, y, tck, dx=0, dy=0):
 def bisplev_cfunc(x, y, tx, ty, c, kx, ky, nx, ny):
     """Legacy function name - use bisplev() instead."""
     return _bisplev_cfunc(x, y, tx, ty, c, kx, ky, nx, ny)
+
+
+@cfunc(types.void(types.float64[:], types.float64[:], types.float64[:], types.float64[:],
+                  types.float64[:], types.int64, types.int64, types.float64[:]),
+       nopython=True, fastmath=True, boundscheck=False)
+def bisplev_cfunc_vectorized(x_arr, y_arr, tx, ty, c, kx, ky, result):
+    """
+    Vectorized C-compatible B-spline evaluation function.
+    
+    Evaluates B-spline at multiple points efficiently using our optimized algorithm.
+    All arrays must be pre-allocated by the caller.
+    
+    Parameters
+    ----------
+    x_arr : float64[:]
+        X coordinates to evaluate (input)
+    y_arr : float64[:]
+        Y coordinates to evaluate (input, same length as x_arr)
+    tx : float64[:]
+        X knot vector
+    ty : float64[:]
+        Y knot vector  
+    c : float64[:]
+        Spline coefficients (flattened)
+    kx : int64
+        X spline degree
+    ky : int64
+        Y spline degree
+    result : float64[:]
+        Output array for results (must be same length as x_arr/y_arr)
+    """
+    nx = len(tx)
+    ny = len(ty)
+    n_points = len(x_arr)
+    
+    # Evaluate at each point using our optimized single-point function
+    for i in range(n_points):
+        result[i] = _bisplev_cfunc(x_arr[i], y_arr[i], tx, ty, c, kx, ky, nx, ny)
 
 
 class Spline2D:
