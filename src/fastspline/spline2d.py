@@ -429,13 +429,18 @@ def _basis_functions(t, k, knot_span, x, N):
 
 
 @cfunc(types.float64(types.float64, types.float64, types.float64[:], types.float64[:],
-                     types.float64[:], types.int64, types.int64, types.int64, types.int64), 
+                     types.float64[:], types.int64, types.int64), 
        nopython=True, fastmath=True, boundscheck=False)
-def bisplev(x, y, tx, ty, c, kx, ky, nx, ny):
+def bisplev(x, y, tx, ty, c, kx, ky):
     """
     ULTRA-OPTIMIZED B-spline evaluation with manual register allocation.
     All operations inlined, no function calls, aggressive optimization.
+    
+    Compatible with SciPy bisplev cfunc interface:
+    result = bisplev(x, y, tx, ty, c, kx, ky)
     """
+    nx = len(tx)
+    ny = len(ty)
     mx = nx - kx - 1
     my = ny - ky - 1
     
