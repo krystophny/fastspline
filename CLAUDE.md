@@ -25,7 +25,3 @@ These are not suggestions - they are strict requirements that MUST be followed i
 4. Once tests pass, clean up code while keeping tests green
 5. Commit, push, close the issue
 
-
-## Information on reference code
-
-You can find the reference Fortran implementation in `thirdparty/libneo/src/interpolate/interpolate.f90`.

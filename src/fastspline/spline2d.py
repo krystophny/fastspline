@@ -360,6 +360,176 @@ def evaluate_spline_2d_derivatives_cfunc(x, y, coeffs, x_min, y_min, h_step_x, h
     return z, dz_dx, dz_dy
 
 
+@njit
+def find_knot_interval(t, n, k, x):
+    """
+    Find the knot interval index for x in knot vector t.
+    Returns i such that t[i] <= x < t[i+1].
+    For the rightmost point, returns the last valid interval.
+    """
+    # Handle left boundary
+    if x < t[k]:
+        return k
+    
+    # Handle right boundary - special case for x == t[n-k-1]
+    if x >= t[n - k - 1]:
+        # For x exactly at the right boundary, use the last interval
+        if x == t[n - k - 1]:
+            # Find the last interval where t[i] < t[i+1]
+            for i in range(n - k - 2, k - 1, -1):
+                if t[i] < t[i + 1]:
+                    return i
+        return n - k - 2
+    
+    # Binary search for interior points
+    low = k
+    high = n - k - 1
+    
+    while high - low > 1:
+        mid = (low + high) // 2
+        if x < t[mid]:
+            high = mid
+        else:
+            low = mid
+    
+    return low
+
+
+@njit
+def deboor_1d(t, c, k, x):
+    """
+    Evaluate B-spline at x using de Boor's algorithm.
+    
+    Parameters:
+    t: knot vector
+    c: control points (coefficients)
+    k: degree
+    x: evaluation point
+    
+    Returns:
+    B-spline value at x
+    """
+    n = len(c)
+    
+    # Find knot interval
+    i = find_knot_interval(t, len(t), k, x)
+    
+    # Initialize working array with relevant control points
+    d = np.zeros(k + 1)
+    for j in range(k + 1):
+        idx = i - k + j
+        if 0 <= idx < n:
+            d[j] = c[idx]
+    
+    # Apply de Boor recursion
+    for r in range(1, k + 1):
+        for j in range(k, r - 1, -1):
+            idx = i - k + j
+            alpha = (x - t[idx]) / (t[idx + k - r + 1] - t[idx])
+            d[j] = (1.0 - alpha) * d[j - 1] + alpha * d[j]
+    
+    return d[k]
+
+
+@njit
+def bspline_basis(i, k, t, x):
+    """
+    Evaluate B-spline basis function B_{i,k} at x using a direct approach.
+    This matches scipy's behavior exactly.
+    """
+    # For right boundary, use left-sided evaluation for the last basis function
+    if x == t[-1] and i == len(t) - k - 2:
+        x = x - 1e-14
+    
+    # Check if x is outside the support of B_{i,k}
+    if x < t[i] or x >= t[i + k + 1]:
+        return 0.0
+    
+    # Use de Boor's algorithm
+    N = np.zeros(k + 1)
+    
+    # Find knot span
+    j = i
+    while j < len(t) - 1 and x >= t[j + 1]:
+        j += 1
+    
+    # Initialize for degree 0
+    for idx in range(k + 1):
+        span_start = j - k + idx
+        if 0 <= span_start < len(t) - 1:
+            if t[span_start] <= x < t[span_start + 1]:
+                N[idx] = 1.0
+            else:
+                N[idx] = 0.0
+        else:
+            N[idx] = 0.0
+    
+    # Compute higher degree basis functions
+    for d in range(1, k + 1):
+        for idx in range(k - d + 1):
+            span_start = j - k + idx
+            left = 0.0
+            right = 0.0
+            
+            # Left term
+            if span_start >= 0 and span_start + d < len(t):
+                denom = t[span_start + d] - t[span_start]
+                if denom > 0:
+                    left = (x - t[span_start]) / denom * N[idx]
+            
+            # Right term  
+            if span_start + 1 >= 0 and span_start + d + 1 < len(t):
+                denom = t[span_start + d + 1] - t[span_start + 1]
+                if denom > 0:
+                    right = (t[span_start + d + 1] - x) / denom * N[idx + 1]
+            
+            N[idx] = left + right
+    
+    # Return the value for basis function i
+    if j - k == i:
+        return N[0]
+    else:
+        return 0.0
+
+
+@njit
+def eval_basis_simple(i, k, t, x):
+    """Simple recursive B-spline basis evaluation that matches scipy."""
+    if k == 0:
+        if i >= len(t) - 1:
+            return 0.0
+        if t[i] <= x < t[i + 1]:
+            return 1.0
+        if x == t[i + 1] and i == len(t) - 2:  # Right boundary special case
+            return 1.0
+        return 0.0
+    
+    # Recursive case using Cox-de Boor formula
+    result = 0.0
+    
+    # First term: (x - t[i]) / (t[i+k] - t[i]) * B_{i,k-1}(x)
+    if i + k < len(t):
+        denom1 = t[i + k] - t[i]
+        if denom1 > 0.0:
+            result += (x - t[i]) / denom1 * eval_basis_simple(i, k - 1, t, x)
+        elif denom1 == 0.0:
+            # Handle repeated knots: if denom is 0, treat this term as 0
+            pass
+    
+    # Second term: (t[i+k+1] - x) / (t[i+k+1] - t[i+1]) * B_{i+1,k-1}(x)
+    if i + k + 1 < len(t):
+        denom2 = t[i + k + 1] - t[i + 1]
+        if denom2 > 0.0:
+            result += (t[i + k + 1] - x) / denom2 * eval_basis_simple(i + 1, k - 1, t, x)
+        elif denom2 == 0.0:
+            # Special case: when denom2 is 0 but we're at the boundary
+            # Check if this should contribute
+            if x == t[i + k + 1] and eval_basis_simple(i + 1, k - 1, t, x) > 0:
+                result += eval_basis_simple(i + 1, k - 1, t, x)
+    
+    return result
+
+
 @cfunc(types.float64(types.float64, types.float64, types.float64[:], types.float64[:],
                      types.float64[:], types.int64, types.int64, types.int64, types.int64))
 def bisplev_cfunc(x, y, tx, ty, c, kx, ky, nx, ny):
@@ -378,16 +548,27 @@ def bisplev_cfunc(x, y, tx, ty, c, kx, ky, nx, ny):
     Returns:
     evaluated spline value
     """
-    # This is a simplified implementation
-    # A full bisplev implementation would require B-spline basis function evaluation
-    # with proper knot interval finding and basis function computation
+    # Number of coefficients in each direction
+    mx = nx - kx - 1
+    my = ny - ky - 1
     
-    # For now, return a simple interpolation based on coefficients
-    # This would need to be replaced with proper DIERCKX B-spline evaluation
-    if len(c) > 0:
-        return c[0]  # Placeholder
-    else:
-        return 0.0
+    # Initialize result
+    result = 0.0
+    
+    # Evaluate using tensor product of 1D B-splines
+    for i in range(mx):
+        for j in range(my):
+            # Evaluate basis functions
+            bx = eval_basis_simple(i, kx, tx, x)
+            by = eval_basis_simple(j, ky, ty, y)
+            
+            # Add contribution if non-zero
+            if bx != 0.0 and by != 0.0:
+                coeff_idx = i * my + j
+                if coeff_idx < len(c):
+                    result += bx * by * c[coeff_idx]
+    
+    return result
 
 
 class Spline2D:
