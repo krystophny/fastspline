@@ -461,6 +461,129 @@ def bisplev_cfunc(x, y, tx, ty, c, kx, ky, nx, ny):
     return result
 
 
+def bisplrep(x, y, z, w=None, xb=None, xe=None, yb=None, ye=None, 
+             kx=3, ky=3, task=0, s=None, eps=1e-16, tx=None, ty=None, 
+             full_output=0, nxest=None, nyest=None, quiet=1):
+    """
+    Find a bivariate B-spline representation of a surface.
+    
+    FastSpline implementation compatible with scipy.interpolate.bisplrep.
+    Uses SciPy's bisplrep for fitting and returns tck tuple for use with
+    our optimized bisplev function.
+    
+    Parameters
+    ----------
+    x, y, z : array_like
+        1-D sequences of data points (order is not important).
+    w : array_like, optional
+        1-D sequence of weights. Default is None (uniform weights).
+    xb, xe, yb, ye : float, optional
+        End-points of approximation interval in x and y directions.
+    kx, ky : int, optional
+        Degrees of the bivariate spline. Default is 3.
+    task : int, optional
+        If task=0, find spline for given smoothing factor s.
+        If task=1, find spline for automatic smoothing.
+        Default is 0.
+    s : float, optional
+        Smoothing condition. Default is 0 (interpolation).
+    eps : float, optional
+        Threshold for determining rank of coefficient matrix.
+    tx, ty : array_like, optional
+        Knot sequences (only used if task >= 1).
+    full_output : int, optional
+        If non-zero, return additional info. Default is 0.
+    nxest, nyest : int, optional
+        Over-estimates of the number of knots.
+    quiet : int, optional
+        If non-zero, suppress warnings. Default is 1.
+        
+    Returns
+    -------
+    tck : tuple
+        (tx, ty, c, kx, ky) tuple containing:
+        - tx, ty : knot vectors
+        - c : spline coefficients 
+        - kx, ky : spline degrees
+    Or if full_output=1:
+    tck, fp, ier, msg : tuple
+        Where fp is weighted sum of squared residuals, ier is error flag,
+        msg is error message.
+    """
+    # Import scipy for the heavy lifting
+    from scipy.interpolate import bisplrep as scipy_bisplrep
+    
+    # Use scipy's bisplrep for fitting (it's already highly optimized)
+    if full_output:
+        result = scipy_bisplrep(x, y, z, w=w, xb=xb, xe=xe, yb=yb, ye=ye,
+                               kx=kx, ky=ky, task=task, s=s, eps=eps,
+                               tx=tx, ty=ty, full_output=full_output,
+                               nxest=nxest, nyest=nyest, quiet=quiet)
+        return result
+    else:
+        tck = scipy_bisplrep(x, y, z, w=w, xb=xb, xe=xe, yb=yb, ye=ye,
+                            kx=kx, ky=ky, task=task, s=s, eps=eps,
+                            tx=tx, ty=ty, full_output=full_output,
+                            nxest=nxest, nyest=nyest, quiet=quiet)
+        return tck
+
+
+def bisplev(x, y, tck, dx=0, dy=0):
+    """
+    Evaluate a bivariate B-spline and its derivatives.
+    
+    FastSpline implementation compatible with scipy.interpolate.bisplev.
+    Uses our optimized bisplev_cfunc for evaluation.
+    
+    Parameters
+    ----------
+    x, y : array_like
+        Rank-1 arrays of points at which to evaluate B-spline or its derivative.
+        Can be scalars or arrays.
+    tck : tuple
+        (tx, ty, c, kx, ky) tuple as returned by bisplrep
+    dx, dy : int, optional
+        Orders of partial derivatives. Default is 0.
+        
+    Returns
+    -------
+    vals : ndarray
+        Evaluated B-spline or its derivative at (x, y) points.
+        Shape matches the broadcast shape of x and y.
+    """
+    if dx != 0 or dy != 0:
+        # Fall back to scipy for derivatives (not implemented yet)
+        from scipy.interpolate import bisplev as scipy_bisplev
+        return scipy_bisplev(x, y, tck, dx=dx, dy=dy)
+    
+    # Extract tck components
+    tx, ty, c, kx, ky = tck
+    nx, ny = len(tx), len(ty)
+    
+    # Handle scalar inputs
+    x_scalar = np.isscalar(x)
+    y_scalar = np.isscalar(y)
+    
+    # Convert to arrays
+    x_arr = np.atleast_1d(x)
+    y_arr = np.atleast_1d(y)
+    
+    # Broadcast to common shape
+    x_arr, y_arr = np.broadcast_arrays(x_arr, y_arr)
+    
+    # Evaluate at all points
+    result = np.zeros_like(x_arr, dtype=np.float64)
+    for i in range(x_arr.size):
+        result.flat[i] = bisplev_cfunc(x_arr.flat[i], y_arr.flat[i], 
+                                      tx, ty, c, kx, ky, nx, ny)
+    
+    # Return scalar if inputs were scalar
+    if x_scalar and y_scalar:
+        return result.item()
+    
+    return result
+
+
 @cfunc(types.float64(types.float64, types.float64, types.float64[:], types.float64[:],
                      types.float64[:], types.int64, types.int64, types.int64, types.int64), 
        nopython=True, fastmath=True, boundscheck=False)

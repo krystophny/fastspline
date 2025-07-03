@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """
-Benchmark: FastSpline bisplev_cfunc vs SciPy bisplrep/bisplev
+Benchmark: FastSpline bisplrep/bisplev vs SciPy bisplrep/bisplev
 
-Direct comparison of our cache-optimized bisplev_cfunc against scipy's 
-bisplrep/bisplev for unstructured 2D B-spline interpolation.
+Comparison of our scipy-compatible bisplrep/bisplev interface against 
+scipy's original implementation for unstructured 2D B-spline interpolation.
 """
 
 import numpy as np
 import matplotlib.pyplot as plt
 import time
-from scipy.interpolate import bisplrep, bisplev
-from fastspline.spline2d import bisplev_cfunc
+from scipy.interpolate import bisplrep as scipy_bisplrep, bisplev as scipy_bisplev
+from fastspline.spline2d import bisplrep as fast_bisplrep, bisplev as fast_bisplev, bisplev_cfunc
 
 
 def generate_test_data(n_points, function_type='smooth'):
@@ -35,40 +35,70 @@ def benchmark_bisplrep_construction(n_points_list):
     
     results = {
         'scipy_bisplrep_k1': {'n_points': [], 'times': []},
-        'scipy_bisplrep_k3': {'n_points': [], 'times': []}
+        'scipy_bisplrep_k3': {'n_points': [], 'times': []},
+        'fastspline_bisplrep_k1': {'n_points': [], 'times': []},
+        'fastspline_bisplrep_k3': {'n_points': [], 'times': []}
     }
     
     print("bisplrep Construction Time Comparison")
-    print("=" * 50)
-    print(f"{'N Points':<10} {'SciPy k=1':<12} {'SciPy k=3':<12}")
-    print("-" * 50)
+    print("=" * 80)
+    print(f"{'N Points':<10} {'SciPy k=1':<12} {'SciPy k=3':<12} {'FastSpline k=1':<15} {'FastSpline k=3':<15}")
+    print("-" * 80)
     
     for n_points in n_points_list:
         x, y, z = generate_test_data(n_points, 'smooth')
         
+        times_row = []
+        
         # SciPy bisplrep k=1
         try:
             start = time.perf_counter()
-            tck_k1 = bisplrep(x, y, z, kx=1, ky=1, s=0)
-            time_k1 = (time.perf_counter() - start) * 1000
+            tck_k1_scipy = scipy_bisplrep(x, y, z, kx=1, ky=1, s=0)
+            time_k1_scipy = (time.perf_counter() - start) * 1000
             results['scipy_bisplrep_k1']['n_points'].append(n_points)
-            results['scipy_bisplrep_k1']['times'].append(time_k1)
+            results['scipy_bisplrep_k1']['times'].append(time_k1_scipy)
         except Exception as e:
-            print(f"  bisplrep k=1 failed for {n_points} points: {e}")
-            time_k1 = np.nan
+            print(f"  scipy bisplrep k=1 failed for {n_points} points: {e}")
+            time_k1_scipy = np.nan
+        times_row.append(time_k1_scipy)
         
         # SciPy bisplrep k=3
         try:
             start = time.perf_counter()
-            tck_k3 = bisplrep(x, y, z, kx=3, ky=3, s=0)
-            time_k3 = (time.perf_counter() - start) * 1000
+            tck_k3_scipy = scipy_bisplrep(x, y, z, kx=3, ky=3, s=0)
+            time_k3_scipy = (time.perf_counter() - start) * 1000
             results['scipy_bisplrep_k3']['n_points'].append(n_points)
-            results['scipy_bisplrep_k3']['times'].append(time_k3)
+            results['scipy_bisplrep_k3']['times'].append(time_k3_scipy)
         except Exception as e:
-            print(f"  bisplrep k=3 failed for {n_points} points: {e}")
-            time_k3 = np.nan
+            print(f"  scipy bisplrep k=3 failed for {n_points} points: {e}")
+            time_k3_scipy = np.nan
+        times_row.append(time_k3_scipy)
         
-        print(f"{n_points:<10} {time_k1:8.2f}     {time_k3:8.2f}")
+        # FastSpline bisplrep k=1 (should be same as SciPy since we use scipy internally)
+        try:
+            start = time.perf_counter()
+            tck_k1_fast = fast_bisplrep(x, y, z, kx=1, ky=1, s=0)
+            time_k1_fast = (time.perf_counter() - start) * 1000
+            results['fastspline_bisplrep_k1']['n_points'].append(n_points)
+            results['fastspline_bisplrep_k1']['times'].append(time_k1_fast)
+        except Exception as e:
+            print(f"  fastspline bisplrep k=1 failed for {n_points} points: {e}")
+            time_k1_fast = np.nan
+        times_row.append(time_k1_fast)
+        
+        # FastSpline bisplrep k=3
+        try:
+            start = time.perf_counter()
+            tck_k3_fast = fast_bisplrep(x, y, z, kx=3, ky=3, s=0)
+            time_k3_fast = (time.perf_counter() - start) * 1000
+            results['fastspline_bisplrep_k3']['n_points'].append(n_points)
+            results['fastspline_bisplrep_k3']['times'].append(time_k3_fast)
+        except Exception as e:
+            print(f"  fastspline bisplrep k=3 failed for {n_points} points: {e}")
+            time_k3_fast = np.nan
+        times_row.append(time_k3_fast)
+        
+        print(f"{n_points:<10} {times_row[0]:8.2f}     {times_row[1]:8.2f}     {times_row[2]:11.2f}     {times_row[3]:11.2f}")
     
     return results
 
@@ -80,7 +110,9 @@ def benchmark_bisplev_evaluation(n_points_list, n_eval=1000):
         'scipy_bisplev_k1': {'n_points': [], 'times': []},
         'scipy_bisplev_k3': {'n_points': [], 'times': []},
         'fastspline_bisplev_k1': {'n_points': [], 'times': []},
-        'fastspline_bisplev_k3': {'n_points': [], 'times': []}
+        'fastspline_bisplev_k3': {'n_points': [], 'times': []},
+        'fastspline_cfunc_k1': {'n_points': [], 'times': []},
+        'fastspline_cfunc_k3': {'n_points': [], 'times': []}
     }
     
     # Fixed evaluation points
@@ -89,19 +121,19 @@ def benchmark_bisplev_evaluation(n_points_list, n_eval=1000):
     y_eval = np.random.uniform(-0.8, 0.8, n_eval)
     
     print(f"\nbisplev Evaluation Time Comparison ({n_eval} evaluations)")
-    print("=" * 70)
-    print(f"{'N Points':<10} {'SciPy k=1':<12} {'SciPy k=3':<12} {'FastSpline k=1':<15} {'FastSpline k=3':<15}")
-    print("-" * 70)
+    print("=" * 100)
+    print(f"{'N Points':<10} {'SciPy k=1':<12} {'SciPy k=3':<12} {'Fast k=1':<12} {'Fast k=3':<12} {'Cfunc k=1':<12} {'Cfunc k=3':<12}")
+    print("-" * 100)
     
     for n_points in n_points_list:
         x, y, z = generate_test_data(n_points, 'smooth')
         
         times_row = []
         
-        # Build splines
+        # Build splines using scipy
         try:
-            tck_k1 = bisplrep(x, y, z, kx=1, ky=1, s=0)
-            tck_k3 = bisplrep(x, y, z, kx=3, ky=3, s=0)
+            tck_k1 = scipy_bisplrep(x, y, z, kx=1, ky=1, s=0)
+            tck_k3 = scipy_bisplrep(x, y, z, kx=3, ky=3, s=0)
         except Exception as e:
             print(f"  Failed to create splines for {n_points} points: {e}")
             continue
@@ -109,41 +141,57 @@ def benchmark_bisplev_evaluation(n_points_list, n_eval=1000):
         # SciPy bisplev k=1
         start = time.perf_counter()
         for i in range(n_eval):
-            result = bisplev(x_eval[i], y_eval[i], tck_k1)
+            result = scipy_bisplev(x_eval[i], y_eval[i], tck_k1)
         time_scipy_k1 = (time.perf_counter() - start) * 1000
         times_row.append(time_scipy_k1)
         
         # SciPy bisplev k=3
         start = time.perf_counter()
         for i in range(n_eval):
-            result = bisplev(x_eval[i], y_eval[i], tck_k3)
+            result = scipy_bisplev(x_eval[i], y_eval[i], tck_k3)
         time_scipy_k3 = (time.perf_counter() - start) * 1000
         times_row.append(time_scipy_k3)
         
-        # FastSpline bisplev_cfunc k=1
+        # FastSpline bisplev k=1
+        start = time.perf_counter()
+        for i in range(n_eval):
+            result = fast_bisplev(x_eval[i], y_eval[i], tck_k1)
+        time_fastspline_k1 = (time.perf_counter() - start) * 1000
+        times_row.append(time_fastspline_k1)
+        
+        # FastSpline bisplev k=3
+        start = time.perf_counter()
+        for i in range(n_eval):
+            result = fast_bisplev(x_eval[i], y_eval[i], tck_k3)
+        time_fastspline_k3 = (time.perf_counter() - start) * 1000
+        times_row.append(time_fastspline_k3)
+        
+        # FastSpline bisplev_cfunc k=1 (direct)
         start = time.perf_counter()
         for i in range(n_eval):
             result = bisplev_cfunc(x_eval[i], y_eval[i], tck_k1[0], tck_k1[1], tck_k1[2], 
                                  1, 1, len(tck_k1[0]), len(tck_k1[1]))
-        time_fastspline_k1 = (time.perf_counter() - start) * 1000
-        times_row.append(time_fastspline_k1)
+        time_cfunc_k1 = (time.perf_counter() - start) * 1000
+        times_row.append(time_cfunc_k1)
         
-        # FastSpline bisplev_cfunc k=3
+        # FastSpline bisplev_cfunc k=3 (direct)
         start = time.perf_counter()
         for i in range(n_eval):
             result = bisplev_cfunc(x_eval[i], y_eval[i], tck_k3[0], tck_k3[1], tck_k3[2], 
                                  3, 3, len(tck_k3[0]), len(tck_k3[1]))
-        time_fastspline_k3 = (time.perf_counter() - start) * 1000
-        times_row.append(time_fastspline_k3)
+        time_cfunc_k3 = (time.perf_counter() - start) * 1000
+        times_row.append(time_cfunc_k3)
         
         # Store results
-        methods = ['scipy_bisplev_k1', 'scipy_bisplev_k3', 'fastspline_bisplev_k1', 'fastspline_bisplev_k3']
+        methods = ['scipy_bisplev_k1', 'scipy_bisplev_k3', 'fastspline_bisplev_k1', 
+                  'fastspline_bisplev_k3', 'fastspline_cfunc_k1', 'fastspline_cfunc_k3']
         for i, method in enumerate(methods):
             results[method]['n_points'].append(n_points)
             results[method]['times'].append(times_row[i])
         
         print(f"{n_points:<10} {times_row[0]:8.2f}     {times_row[1]:8.2f}     "
-              f"{times_row[2]:11.2f}     {times_row[3]:11.2f}")
+              f"{times_row[2]:8.2f}     {times_row[3]:8.2f}     "
+              f"{times_row[4]:8.2f}     {times_row[5]:8.2f}")
     
     return results
 
@@ -152,15 +200,17 @@ def benchmark_accuracy_comparison(n_points=1000):
     """Compare accuracy between scipy and fastspline bisplev."""
     
     print(f"\nAccuracy Comparison ({n_points} training points)")
-    print("=" * 60)
+    print("=" * 80)
     
     # Generate test data
     x_train, y_train, z_train = generate_test_data(n_points, 'smooth')
     
-    # Create splines
+    # Create splines using both methods
     try:
-        tck_k1 = bisplrep(x_train, y_train, z_train, kx=1, ky=1, s=0)
-        tck_k3 = bisplrep(x_train, y_train, z_train, kx=3, ky=3, s=0)
+        tck_k1_scipy = scipy_bisplrep(x_train, y_train, z_train, kx=1, ky=1, s=0)
+        tck_k3_scipy = scipy_bisplrep(x_train, y_train, z_train, kx=3, ky=3, s=0)
+        tck_k1_fast = fast_bisplrep(x_train, y_train, z_train, kx=1, ky=1, s=0)
+        tck_k3_fast = fast_bisplrep(x_train, y_train, z_train, kx=3, ky=3, s=0)
     except Exception as e:
         print(f"Failed to create test splines: {e}")
         return
@@ -171,33 +221,43 @@ def benchmark_accuracy_comparison(n_points=1000):
     x_test = np.random.uniform(-0.9, 0.9, n_test)
     y_test = np.random.uniform(-0.9, 0.9, n_test)
     
-    # Evaluate both methods
+    # Evaluate all methods
     scipy_results_k1 = []
     scipy_results_k3 = []
     fastspline_results_k1 = []
     fastspline_results_k3 = []
+    cfunc_results_k1 = []
+    cfunc_results_k3 = []
     
     for i in range(n_test):
         # SciPy results
-        scipy_results_k1.append(bisplev(x_test[i], y_test[i], tck_k1))
-        scipy_results_k3.append(bisplev(x_test[i], y_test[i], tck_k3))
+        scipy_results_k1.append(scipy_bisplev(x_test[i], y_test[i], tck_k1_scipy))
+        scipy_results_k3.append(scipy_bisplev(x_test[i], y_test[i], tck_k3_scipy))
         
-        # FastSpline results
-        fastspline_results_k1.append(bisplev_cfunc(x_test[i], y_test[i], 
-                                                  tck_k1[0], tck_k1[1], tck_k1[2], 
-                                                  1, 1, len(tck_k1[0]), len(tck_k1[1])))
-        fastspline_results_k3.append(bisplev_cfunc(x_test[i], y_test[i], 
-                                                  tck_k3[0], tck_k3[1], tck_k3[2], 
-                                                  3, 3, len(tck_k3[0]), len(tck_k3[1])))
+        # FastSpline bisplev results
+        fastspline_results_k1.append(fast_bisplev(x_test[i], y_test[i], tck_k1_fast))
+        fastspline_results_k3.append(fast_bisplev(x_test[i], y_test[i], tck_k3_fast))
+        
+        # FastSpline cfunc results
+        cfunc_results_k1.append(bisplev_cfunc(x_test[i], y_test[i], 
+                                             tck_k1_scipy[0], tck_k1_scipy[1], tck_k1_scipy[2], 
+                                             1, 1, len(tck_k1_scipy[0]), len(tck_k1_scipy[1])))
+        cfunc_results_k3.append(bisplev_cfunc(x_test[i], y_test[i], 
+                                             tck_k3_scipy[0], tck_k3_scipy[1], tck_k3_scipy[2], 
+                                             3, 3, len(tck_k3_scipy[0]), len(tck_k3_scipy[1])))
     
     # Calculate differences
-    diff_k1 = np.array(scipy_results_k1) - np.array(fastspline_results_k1)
-    diff_k3 = np.array(scipy_results_k3) - np.array(fastspline_results_k3)
+    diff_fast_k1 = np.array(scipy_results_k1) - np.array(fastspline_results_k1)
+    diff_fast_k3 = np.array(scipy_results_k3) - np.array(fastspline_results_k3)
+    diff_cfunc_k1 = np.array(scipy_results_k1) - np.array(cfunc_results_k1)
+    diff_cfunc_k3 = np.array(scipy_results_k3) - np.array(cfunc_results_k3)
     
-    print(f"{'Method':<15} {'Max Diff':<12} {'RMS Diff':<12} {'Mean Diff':<12}")
-    print("-" * 60)
-    print(f"{'k=1':<15} {np.max(np.abs(diff_k1)):<12.2e} {np.sqrt(np.mean(diff_k1**2)):<12.2e} {np.mean(np.abs(diff_k1)):<12.2e}")
-    print(f"{'k=3':<15} {np.max(np.abs(diff_k3)):<12.2e} {np.sqrt(np.mean(diff_k3**2)):<12.2e} {np.mean(np.abs(diff_k3)):<12.2e}")
+    print(f"{'Method':<20} {'Max Diff':<12} {'RMS Diff':<12} {'Mean Diff':<12}")
+    print("-" * 80)
+    print(f"{'FastSpline k=1':<20} {np.max(np.abs(diff_fast_k1)):<12.2e} {np.sqrt(np.mean(diff_fast_k1**2)):<12.2e} {np.mean(np.abs(diff_fast_k1)):<12.2e}")
+    print(f"{'FastSpline k=3':<20} {np.max(np.abs(diff_fast_k3)):<12.2e} {np.sqrt(np.mean(diff_fast_k3**2)):<12.2e} {np.mean(np.abs(diff_fast_k3)):<12.2e}")
+    print(f"{'Cfunc k=1':<20} {np.max(np.abs(diff_cfunc_k1)):<12.2e} {np.sqrt(np.mean(diff_cfunc_k1**2)):<12.2e} {np.mean(np.abs(diff_cfunc_k1)):<12.2e}")
+    print(f"{'Cfunc k=3':<20} {np.max(np.abs(diff_cfunc_k3)):<12.2e} {np.sqrt(np.mean(diff_cfunc_k3**2)):<12.2e} {np.mean(np.abs(diff_cfunc_k3)):<12.2e}")
 
 
 def plot_performance_comparison(construction_results, evaluation_results):
