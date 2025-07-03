@@ -1,14 +1,11 @@
 """1D Spline interpolation with numba acceleration using cfunc for C interoperability."""
 
 import numpy as np
-from numba import njit, cfunc, types
-from numba.core import cgutils
-from numba.core.extending import overload_method
-import numba as nb
+from numba import cfunc, types
 from typing import Tuple
 
 
-@njit
+@cfunc(types.float64[:](types.float64[:], types.float64[:], types.float64[:], types.float64[:]), nopython=True, fastmath=True, boundscheck=False)
 def _solve_tridiagonal(a, b, c, d):
     """
     Solve tridiagonal system Ax = d where A has diagonals a, b, c.
@@ -31,7 +28,7 @@ def _solve_tridiagonal(a, b, c, d):
     return x
 
 
-@njit
+@cfunc(types.float64[:, :](types.float64[:], types.float64), nopython=True, fastmath=True, boundscheck=False)
 def _compute_cubic_coefficients_regular(y, h):
     """
     Compute cubic spline coefficients for regular (non-periodic) boundary conditions.
@@ -96,7 +93,7 @@ def _compute_cubic_coefficients_regular(y, h):
     return coeffs
 
 
-@njit
+@cfunc(types.float64[:, :](types.float64[:], types.float64), nopython=True, fastmath=True, boundscheck=False)
 def _compute_cubic_coefficients_periodic(y, h):
     """
     Compute cubic spline coefficients for periodic boundary conditions.
@@ -136,7 +133,7 @@ def _compute_cubic_coefficients_periodic(y, h):
     return coeffs
 
 
-@njit
+@cfunc(types.float64[:, :](types.float64[:], types.float64), nopython=True, fastmath=True, boundscheck=False)
 def _compute_linear_coefficients(y, h):
     """Compute linear spline coefficients."""
     n = len(y)
@@ -150,7 +147,7 @@ def _compute_linear_coefficients(y, h):
     return coeffs
 
 
-@njit
+@cfunc(types.float64(types.float64[:], types.float64, types.int64), nopython=True, fastmath=True, boundscheck=False)
 def _evaluate_polynomial(coeffs, x_local, order):
     """Evaluate polynomial using Horner's method."""
     result = coeffs[order]
@@ -159,7 +156,7 @@ def _evaluate_polynomial(coeffs, x_local, order):
     return result
 
 
-@njit
+@cfunc(types.UniTuple(types.float64, 2)(types.float64[:], types.float64, types.int64), nopython=True, fastmath=True, boundscheck=False)
 def _evaluate_polynomial_derivative(coeffs, x_local, order):
     """Evaluate polynomial and its derivative."""
     # Function value
@@ -178,7 +175,7 @@ def _evaluate_polynomial_derivative(coeffs, x_local, order):
     return y, dy
 
 
-@njit
+@cfunc(types.UniTuple(types.float64, 3)(types.float64[:], types.float64, types.int64), nopython=True, fastmath=True, boundscheck=False)
 def _evaluate_polynomial_second_derivative(coeffs, x_local, order):
     """Evaluate polynomial and its first and second derivatives."""
     # Function value
@@ -205,7 +202,7 @@ def _evaluate_polynomial_second_derivative(coeffs, x_local, order):
     return y, dy, d2y
 
 
-@njit
+@cfunc(types.UniTuple(types.float64, 2)(types.float64, types.float64, types.float64, types.int64, types.boolean), nopython=True, fastmath=True, boundscheck=False)
 def _find_interval_and_local_coord(x, x_min, h_step, num_points, periodic):
     """Find interval index and local coordinate for interpolation."""
     if periodic:
@@ -220,7 +217,7 @@ def _find_interval_and_local_coord(x, x_min, h_step, num_points, periodic):
     interval_index = max(0, min(num_points - 1, int(x_norm)))
     x_local = (x_norm - float(interval_index)) * h_step
     
-    return interval_index, x_local
+    return float(interval_index), x_local
 
 
 # C-compatible function signatures using cfunc

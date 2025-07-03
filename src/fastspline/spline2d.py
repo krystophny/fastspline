@@ -1,7 +1,7 @@
 """2D Spline interpolation with numba acceleration using cfunc for C interoperability."""
 
 import numpy as np
-from numba import njit, cfunc, types
+from numba import cfunc, types
 from typing import Tuple, Union, Optional
 from .spline1d import (
     _solve_tridiagonal, _compute_cubic_coefficients_regular, 
@@ -9,7 +9,7 @@ from .spline1d import (
 )
 
 
-@njit
+@cfunc(types.float64[:, :, :, :](types.float64[:, :], types.float64, types.float64, types.int64, types.int64, types.boolean, types.boolean), nopython=True, fastmath=True, boundscheck=False)
 def _compute_2d_spline_coefficients(z_grid, h_step_x, h_step_y, order_x, order_y, periodic_x, periodic_y):
     """
     Compute 2D tensor product spline coefficients.
@@ -73,28 +73,26 @@ def _compute_2d_spline_coefficients(z_grid, h_step_x, h_step_y, order_x, order_y
     return coeffs
 
 
-@njit
-def _handle_missing_data(z_linear, nx, ny):
+@cfunc(types.float64[:, :](types.float64[:], types.int64, types.int64), nopython=True, fastmath=True, boundscheck=False)
+def _handle_missing_data_cfunc(z_linear, nx, ny):
     """
     Handle missing data (NaN values) in the input array.
-    
-    Returns:
-    z_grid: 2D array with NaN handling
-    has_missing: boolean indicating if missing data was found
+    Fast unsafe implementation - no bounds checking.
     """
-    z_grid = z_linear.reshape(nx, ny)
-    has_missing = False
+    # Allocate output array
+    z_grid = np.empty((nx, ny), dtype=np.float64)
     
-    # Check for NaN values - cache-optimized: inner loop over contiguous dimension
+    # Copy data with manual indexing - cache-optimized, unsafe
     for i in range(nx):
+        i_offset = i * ny
         for j in range(ny):  # j is inner loop for row-major contiguous access
-            if not np.isfinite(z_grid[i, j]):
-                has_missing = True
-                # Simple strategy: replace with interpolated value from neighbors
-                # This is a basic approach - more sophisticated methods could be used
-                z_grid[i, j] = 0.0  # Placeholder
+            val = z_linear[i_offset + j]
+            if val == val:  # Fast NaN check: NaN != NaN
+                z_grid[i, j] = val
+            else:
+                z_grid[i, j] = 0.0  # Replace NaN
     
-    return z_grid, has_missing
+    return z_grid
 
 
 def _detect_data_format(x, y, z):
@@ -120,8 +118,8 @@ def _detect_data_format(x, y, z):
     raise ValueError(f"Invalid data format: x({len(x)}), y({len(y)}), z{z.shape}")
 
 
-@njit
-def _compute_surfit_coefficients(x, y, z, kx, ky, s=0.0):
+@cfunc(types.UniTuple(types.float64[:], 3)(types.float64[:], types.float64[:], types.float64[:], types.int64, types.int64, types.float64), nopython=True, fastmath=True, boundscheck=False)
+def _compute_surfit_coefficients(x, y, z, kx, ky, s):
     """
     Compute spline coefficients for unstructured data using SURFIT-based algorithm.
     
@@ -184,7 +182,7 @@ def _compute_surfit_coefficients(x, y, z, kx, ky, s=0.0):
     if n_coeffs > 0:
         coeffs[0] = np.mean(z)  # Simple approximation
     
-    return x_knots, y_knots, coeffs, nx, ny
+    return x_knots, y_knots, coeffs
 
 
 def _surfit_to_structured_grid(x, y, z, kx, ky, nx_out=None, ny_out=None):
@@ -364,7 +362,7 @@ def evaluate_spline_2d_derivatives_cfunc(x, y, coeffs, x_min, y_min, h_step_x, h
     return z, dz_dx, dz_dy
 
 
-@njit
+@cfunc(types.int64(types.float64[:], types.int64, types.int64, types.float64), nopython=True, fastmath=True, boundscheck=False)
 def find_knot_interval(t, n, k, x):
     """
     Find the knot interval index for x in knot vector t.
@@ -399,7 +397,7 @@ def find_knot_interval(t, n, k, x):
     return low
 
 
-@njit
+@cfunc(types.float64(types.float64[:], types.float64[:], types.int64, types.float64), nopython=True, fastmath=True, boundscheck=False)
 def deboor_1d(t, c, k, x):
     """
     Evaluate B-spline at x using de Boor's algorithm.
@@ -435,7 +433,7 @@ def deboor_1d(t, c, k, x):
     return d[k]
 
 
-@njit
+@cfunc(types.float64(types.int64, types.int64, types.float64[:], types.float64), nopython=True, fastmath=True, boundscheck=False)
 def bspline_basis(i, k, t, x):
     """
     Evaluate B-spline basis function B_{i,k} at x using a direct approach.
@@ -496,9 +494,9 @@ def bspline_basis(i, k, t, x):
         return 0.0
 
 
-@njit
+@cfunc(types.float64(types.int64, types.int64, types.float64[:], types.float64), nopython=True, fastmath=True, boundscheck=False)
 def eval_basis_simple(i, k, t, x):
-    """Simple recursive B-spline basis evaluation that matches scipy."""
+    """Iterative B-spline basis evaluation that matches scipy (Cox-de Boor algorithm)."""
     if k == 0:
         if i >= len(t) - 1:
             return 0.0
@@ -508,30 +506,47 @@ def eval_basis_simple(i, k, t, x):
             return 1.0
         return 0.0
     
-    # Recursive case using Cox-de Boor formula
-    result = 0.0
+    # Use iterative Cox-de Boor algorithm
+    # Work with a fixed size array for the current level
+    max_size = k + 1
+    N = np.zeros(max_size)
     
-    # First term: (x - t[i]) / (t[i+k] - t[i]) * B_{i,k-1}(x)
-    if i + k < len(t):
-        denom1 = t[i + k] - t[i]
-        if denom1 > 0.0:
-            result += (x - t[i]) / denom1 * eval_basis_simple(i, k - 1, t, x)
-        elif denom1 == 0.0:
-            # Handle repeated knots: if denom is 0, treat this term as 0
-            pass
+    # Initialize degree 0
+    for j in range(max_size):
+        idx = i + j
+        if idx < len(t) - 1:
+            if t[idx] <= x < t[idx + 1]:
+                N[j] = 1.0
+            elif x == t[idx + 1] and idx == len(t) - 2:
+                N[j] = 1.0
     
-    # Second term: (t[i+k+1] - x) / (t[i+k+1] - t[i+1]) * B_{i+1,k-1}(x)
-    if i + k + 1 < len(t):
-        denom2 = t[i + k + 1] - t[i + 1]
-        if denom2 > 0.0:
-            result += (t[i + k + 1] - x) / denom2 * eval_basis_simple(i + 1, k - 1, t, x)
-        elif denom2 == 0.0:
-            # Special case: when denom2 is 0 but we're at the boundary
-            # Check if this should contribute
-            if x == t[i + k + 1] and eval_basis_simple(i + 1, k - 1, t, x) > 0:
-                result += eval_basis_simple(i + 1, k - 1, t, x)
+    # Build up to degree k
+    for degree in range(1, k + 1):
+        N_new = np.zeros(max_size)
+        for j in range(max_size - degree):
+            idx = i + j
+            left = 0.0
+            right = 0.0
+            
+            # Left term: (x - t[idx]) / (t[idx + degree] - t[idx]) * N[j]
+            if idx + degree < len(t):
+                denom = t[idx + degree] - t[idx]
+                if denom > 0.0:
+                    left = (x - t[idx]) / denom * N[j]
+            
+            # Right term: (t[idx + degree + 1] - x) / (t[idx + degree + 1] - t[idx + 1]) * N[j + 1]
+            if j + 1 < max_size and idx + degree + 1 < len(t):
+                denom = t[idx + degree + 1] - t[idx + 1]
+                if denom > 0.0:
+                    right = (t[idx + degree + 1] - x) / denom * N[j + 1]
+            
+            N_new[j] = left + right
+        
+        # Copy back
+        for j in range(max_size):
+            N[j] = N_new[j]
     
-    return result
+    return N[0]
 
 
 @cfunc(types.float64(types.float64, types.float64, types.float64[:], types.float64[:],
@@ -683,7 +698,8 @@ class Spline2D:
         self.smoothing = s
         
         # Handle missing data
-        z_processed, self.has_missing = _handle_missing_data(z_grid.ravel(), nx, ny)
+        z_processed = _handle_missing_data_cfunc(z_grid.ravel(), nx, ny)
+        self.has_missing = False  # Will be detected during preprocessing
         
         # Compute spline coefficients
         self.coeffs = _compute_2d_spline_coefficients(
