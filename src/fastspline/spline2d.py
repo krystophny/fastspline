@@ -802,8 +802,19 @@ def bisplev_grid_cfunc(x_arr, y_arr, tx, ty, c, kx, ky, result):
             # Inline the bisplev evaluation for maximum speed
             result[i, j] = bisplev(x_val, y_val, tx, ty, c, kx, ky)
 
+@cfunc(types.void(types.float64[:], types.float64[:], types.float64[:], 
+                  types.float64[:], types.float64[:], types.int64, types.int64,
+                  types.float64[:]), nopython=True, fastmath=True, boundscheck=False)
+def bisplev_points_cfunc(x_arr, y_arr, tx, ty, c, kx, ky, result):
+    """Ultra-fast pointwise evaluation as a cfunc."""
+    n = min(len(x_arr), len(y_arr))
+    
+    # Evaluate at (x[i], y[i]) pairs
+    for i in range(n):
+        result[i] = bisplev(x_arr[i], y_arr[i], tx, ty, c, kx, ky)
 
-def bisplev_wrapper(x, y, tck, dx=0, dy=0, grid=True):
+
+def bisplev_python(x, y, tck, dx=0, dy=0, grid=True):
     """
     Evaluate a bivariate B-spline and its derivatives.
     
