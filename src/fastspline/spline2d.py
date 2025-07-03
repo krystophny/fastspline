@@ -363,7 +363,7 @@ def evaluate_spline_2d_derivatives_cfunc(x, y, coeffs, x_min, y_min, h_step_x, h
 
 
 @cfunc(types.int64(types.float64[:], types.int64, types.float64), nopython=True, fastmath=True, boundscheck=False)
-def find_knot_span(t, k, x):
+def _find_knot_span(t, k, x):
     """
     Find knot span index using binary search (NURBS Book Algorithm A2.1).
     Returns i such that t[i] <= x < t[i+1] and basis functions N_{i-k},...,N_i are non-zero.
@@ -396,7 +396,7 @@ def find_knot_span(t, k, x):
 
 
 @cfunc(types.void(types.float64[:], types.int64, types.int64, types.float64, types.float64[:]), nopython=True, fastmath=True, boundscheck=False)
-def basis_functions(t, k, knot_span, x, N):
+def _basis_functions(t, k, knot_span, x, N):
     """
     Compute all non-zero basis functions (NURBS Book Algorithm A2.2).
     Fast stack-based implementation matching SciPy's approach.
@@ -431,7 +431,7 @@ def basis_functions(t, k, knot_span, x, N):
 @cfunc(types.float64(types.float64, types.float64, types.float64[:], types.float64[:],
                      types.float64[:], types.int64, types.int64, types.int64, types.int64), 
        nopython=True, fastmath=True, boundscheck=False, cache=True)
-def bisplev_cfunc(x, y, tx, ty, c, kx, ky, nx, ny):
+def _bisplev_cfunc(x, y, tx, ty, c, kx, ky, nx, ny):
     """
     Step-by-step optimized B-spline evaluation.
     Step 1: Inline linear basis functions for k=1 case.
@@ -440,8 +440,8 @@ def bisplev_cfunc(x, y, tx, ty, c, kx, ky, nx, ny):
     my = ny - ky - 1
     
     # Find knot spans using binary search (keep working version for now)
-    span_x = find_knot_span(tx, kx, x)
-    span_y = find_knot_span(ty, ky, y)
+    span_x = _find_knot_span(tx, kx, x)
+    span_y = _find_knot_span(ty, ky, y)
     
     # === STEP 1 OPTIMIZATION: Inline linear basis functions ===
     if kx == 1 and ky == 1:
@@ -477,9 +477,9 @@ def bisplev_cfunc(x, y, tx, ty, c, kx, ky, nx, ny):
         Nx0 = 1.0 - alpha_x
         Nx1 = alpha_x
         
-        # Use basis_functions for cubic y
+        # Use _basis_functions for cubic y
         Ny = np.zeros(4, dtype=np.float64)
-        basis_functions(ty, 3, span_y, y, Ny)
+        _basis_functions(ty, 3, span_y, y, Ny)
         
         # Tensor product: 2x4 = 8 terms
         idx_x = span_x - 1
@@ -495,7 +495,7 @@ def bisplev_cfunc(x, y, tx, ty, c, kx, ky, nx, ny):
     elif kx == 3 and ky == 1:
         # Cubic x Linear case - use function for cubic, inline linear
         Nx = np.zeros(4, dtype=np.float64)
-        basis_functions(tx, 3, span_x, x, Nx)
+        _basis_functions(tx, 3, span_x, x, Nx)
         
         denom_y = ty[span_y + 1] - ty[span_y]
         alpha_y = (y - ty[span_y]) / denom_y
@@ -634,8 +634,8 @@ def bisplev_cfunc(x, y, tx, ty, c, kx, ky, nx, ny):
     Nx = np.zeros(kx + 1, dtype=np.float64)
     Ny = np.zeros(ky + 1, dtype=np.float64)
     
-    basis_functions(tx, kx, span_x, x, Nx)
-    basis_functions(ty, ky, span_y, y, Ny)
+    _basis_functions(tx, kx, span_x, x, Nx)
+    _basis_functions(ty, ky, span_y, y, Ny)
     
     # Compute tensor product
     result = 0.0
@@ -761,8 +761,8 @@ def bisplev(x, y, tck, dx=0, dy=0):
     # Evaluate at all points
     result = np.zeros_like(x_arr, dtype=np.float64)
     for i in range(x_arr.size):
-        result.flat[i] = bisplev_cfunc(x_arr.flat[i], y_arr.flat[i], 
-                                      tx, ty, c, kx, ky, nx, ny)
+        result.flat[i] = _bisplev_cfunc(x_arr.flat[i], y_arr.flat[i], 
+                                       tx, ty, c, kx, ky, nx, ny)
     
     # Return scalar if inputs were scalar
     if x_scalar and y_scalar:
@@ -771,19 +771,10 @@ def bisplev(x, y, tck, dx=0, dy=0):
     return result
 
 
-@cfunc(types.float64(types.float64, types.float64, types.float64[:], types.float64[:],
-                     types.float64[:], types.int64, types.int64, types.int64, types.int64), 
-       nopython=True, fastmath=True, boundscheck=False)
-def bisplev_cfunc_ultra(x, y, tx, ty, c, kx, ky, nx, ny):
-    """
-    ULTRA-OPTIMIZED B-spline evaluation - Fixed to use working algorithm
-    
-    Same as bisplev_cfunc but with additional optimizations:
-    1. Fallback to proven algorithm for accuracy
-    2. Future: Will add more aggressive optimizations while maintaining accuracy
-    """
-    # For now, use the proven optimized algorithm
-    return bisplev_cfunc(x, y, tx, ty, c, kx, ky, nx, ny)
+# Legacy alias for backward compatibility
+def bisplev_cfunc(x, y, tx, ty, c, kx, ky, nx, ny):
+    """Legacy function name - use bisplev() instead."""
+    return _bisplev_cfunc(x, y, tx, ty, c, kx, ky, nx, ny)
 
 
 class Spline2D:
