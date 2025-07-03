@@ -21,17 +21,17 @@ def _compute_2d_spline_coefficients(z_grid, h_step_x, h_step_y, order_x, order_y
     periodic_x, periodic_y: periodicity flags
     
     Returns:
-    coeffs: 4D coefficient array, shape (order_x+1, order_y+1, nx, ny)
+    coeffs: 4D coefficient array, shape (nx, ny, order_x+1, order_y+1) - cache-optimized layout
     """
     nx, ny = z_grid.shape
     
-    # Allocate coefficient array
-    coeffs = np.zeros((order_x + 1, order_y + 1, nx, ny))
+    # Allocate coefficient array with cache-optimized layout: spatial indices first
+    coeffs = np.zeros((nx, ny, order_x + 1, order_y + 1))
     
-    # Step 1: Spline along y-direction (second index) for each x
+    # Step 1: Spline along y-direction (contiguous access) for each x
     temp_coeffs_y = np.zeros((order_y + 1, ny))
     for i in range(nx):
-        y_slice = z_grid[i, :]
+        y_slice = z_grid[i, :]  # Contiguous access along y
         
         # Compute 1D spline coefficients along y
         if order_y == 1:
@@ -42,18 +42,19 @@ def _compute_2d_spline_coefficients(z_grid, h_step_x, h_step_y, order_x, order_y
             else:
                 coeffs_1d = _compute_cubic_coefficients_regular(y_slice, h_step_y)
         
-        # Store in temporary array
-        temp_coeffs_y[:coeffs_1d.shape[0], :] = coeffs_1d
-        
-        # Copy to main coefficient array (only constant term for now)
-        coeffs[0, :coeffs_1d.shape[0], i, :] = coeffs_1d
+        # Store in cache-optimized layout: coeffs[i, :, 0, :order_y+1]
+        for j in range(ny):
+            for ky in range(coeffs_1d.shape[0]):
+                coeffs[i, j, 0, ky] = coeffs_1d[ky, j]
     
-    # Step 2: Spline along x-direction (first index) for each y and each coefficient order
+    # Step 2: Spline along x-direction for each y and each coefficient order
     temp_coeffs_x = np.zeros((order_x + 1, nx))
-    for j in range(ny):
-        for ky in range(order_y + 1):
+    for ky in range(order_y + 1):
+        for j in range(ny):
             # Extract coefficients along x for this y-position and y-order
-            x_slice = coeffs[0, ky, :, j].copy()
+            x_slice = np.zeros(nx)
+            for i in range(nx):
+                x_slice[i] = coeffs[i, j, 0, ky]
             
             # Compute 1D spline coefficients along x
             if order_x == 1:
@@ -64,8 +65,10 @@ def _compute_2d_spline_coefficients(z_grid, h_step_x, h_step_y, order_x, order_y
                 else:
                     coeffs_1d = _compute_cubic_coefficients_regular(x_slice, h_step_x)
             
-            # Store final coefficients
-            coeffs[:coeffs_1d.shape[0], ky, :, j] = coeffs_1d
+            # Store final coefficients in cache-optimized layout
+            for i in range(nx):
+                for kx in range(coeffs_1d.shape[0]):
+                    coeffs[i, j, kx, ky] = coeffs_1d[kx, i]
     
     return coeffs
 
@@ -82,9 +85,9 @@ def _handle_missing_data(z_linear, nx, ny):
     z_grid = z_linear.reshape(nx, ny)
     has_missing = False
     
-    # Check for NaN values
+    # Check for NaN values - cache-optimized: inner loop over contiguous dimension
     for i in range(nx):
-        for j in range(ny):
+        for j in range(ny):  # j is inner loop for row-major contiguous access
             if not np.isfinite(z_grid[i, j]):
                 has_missing = True
                 # Simple strategy: replace with interpolated value from neighbors
@@ -205,10 +208,11 @@ def _surfit_to_structured_grid(x, y, z, kx, ky, nx_out=None, ny_out=None):
     X_grid, Y_grid = np.meshgrid(x_grid, y_grid, indexing='ij')
     
     # Interpolate scattered data to grid using inverse distance weighting
+    # Cache-optimized: access z_grid[i, j] with j as inner loop
     z_grid = np.zeros((nx_out, ny_out))
     
     for i in range(nx_out):
-        for j in range(ny_out):
+        for j in range(ny_out):  # j is inner loop for contiguous access
             xi, yj = X_grid[i, j], Y_grid[i, j]
             
             # Calculate distances to all data points
@@ -240,7 +244,7 @@ def evaluate_spline_2d_cfunc(x, y, coeffs, x_min, y_min, h_step_x, h_step_y,
     
     Parameters:
     x, y: evaluation coordinates
-    coeffs: 4D coefficient array (order_x+1, order_y+1, nx, ny)
+    coeffs: 4D coefficient array (nx, ny, order_x+1, order_y+1) - cache-optimized layout
     x_min, y_min: minimum coordinate values
     h_step_x, h_step_y: grid spacing
     nx, ny: number of grid points
@@ -271,13 +275,13 @@ def evaluate_spline_2d_cfunc(x, y, coeffs, x_min, y_min, h_step_x, h_step_y,
     x_local = (x_norm - float(ix)) * h_step_x
     y_local = (y_norm - float(iy)) * h_step_y
     
-    # Extract local coefficients
-    coeff_local = coeffs[:, :, ix, iy]
+    # Extract local coefficients - cache-optimized access pattern
+    coeff_local = coeffs[ix, iy, :, :]  # Contiguous access to coefficient block
     
     # Evaluate using nested Horner's method
     # First, evaluate along x for each y-order
     coeff_y = np.zeros(order_y + 1)
-    for ky in range(order_y + 1):
+    for ky in range(order_y + 1):  # Inner loop over contiguous ky dimension
         coeff_y[ky] = coeff_local[order_x, ky]
         for kx in range(order_x - 1, -1, -1):
             coeff_y[ky] = coeff_local[kx, ky] + x_local * coeff_y[ky]
@@ -325,14 +329,14 @@ def evaluate_spline_2d_derivatives_cfunc(x, y, coeffs, x_min, y_min, h_step_x, h
     x_local = (x_norm - float(ix)) * h_step_x
     y_local = (y_norm - float(iy)) * h_step_y
     
-    # Extract local coefficients
-    coeff_local = coeffs[:, :, ix, iy]
+    # Extract local coefficients - cache-optimized access pattern
+    coeff_local = coeffs[ix, iy, :, :]  # Contiguous access to coefficient block
     
     # Evaluate function value and x-derivative
     coeff_y = np.zeros(order_y + 1)
     dcoeff_y_dx = np.zeros(order_y + 1)
     
-    for ky in range(order_y + 1):
+    for ky in range(order_y + 1):  # Inner loop over contiguous ky dimension
         # Function value
         coeff_y[ky] = coeff_local[order_x, ky]
         for kx in range(order_x - 1, -1, -1):
