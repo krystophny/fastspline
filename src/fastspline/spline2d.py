@@ -2,6 +2,7 @@
 
 import numpy as np
 from numba import cfunc, types, njit, prange
+import math
 from typing import Tuple, Union, Optional
 
 
@@ -33,26 +34,30 @@ def _basis_functions(knots, k, i, x, N):
         N[j] = saved
 
 
-@njit(fastmath=True, cache=True)
-def _find_span(t, k, x):
-    """Find the knot span for x in knot vector t."""
+@njit(fastmath=True, cache=True, inline='always')
+def _find_span_fast(t, k, x):
+    """Ultra-fast knot span search with branch prediction optimization."""
     n = len(t) - k - 1
+    
+    # Hot path optimization - most evaluations are in the middle
+    if t[k] <= x < t[n]:
+        # Binary search optimized for modern CPUs
+        low = k
+        high = n
+        while high - low > 1:
+            mid = (low + high) >> 1  # Bit shift for speed
+            if x < t[mid]:
+                high = mid
+            else:
+                low = mid
+        return low
+    
+    # Edge cases
     if x >= t[n]:
         return n - 1
-    if x <= t[k]:
-        return k
-    
-    # Binary search
-    low = k
-    high = n
-    mid = (low + high) // 2
-    while x < t[mid] or x >= t[mid + 1]:
-        if x < t[mid]:
-            high = mid
-        else:
-            low = mid
-        mid = (low + high) // 2
-    return mid
+    return k
+
+
 
 
 @njit(fastmath=True, cache=True)
@@ -68,9 +73,14 @@ def _basis_funs(i, x, k, t, N):
         saved = 0.0
         
         for r in range(j):
-            temp = N[r] / (right[r + 1] + left[j - r])
-            N[r] = saved + right[r + 1] * temp
-            saved = left[j - r] * temp
+            denom = right[r + 1] + left[j - r]
+            if abs(denom) > 1e-15:
+                temp = N[r] / denom
+                N[r] = saved + right[r + 1] * temp
+                saved = left[j - r] * temp
+            else:
+                N[r] = saved
+                saved = 0.0
         
         N[j] = saved
 
@@ -79,12 +89,10 @@ def _basis_funs(i, x, k, t, N):
                      types.float64[:], types.int64, types.int64), 
        nopython=True, fastmath=True, boundscheck=False)
 def _bisplev_scalar(x, y, tx, ty, c, kx, ky):
-    """
-    Fast B-spline evaluation optimized for performance.
-    """
+    """Clean, fast scalar evaluation."""
     # Find spans
-    span_x = _find_span(tx, kx, x)
-    span_y = _find_span(ty, ky, y)
+    span_x = _find_span_fast(tx, kx, x)
+    span_y = _find_span_fast(ty, ky, y)
     
     # Compute basis functions
     Nx = np.zeros(kx + 1)
@@ -92,7 +100,7 @@ def _bisplev_scalar(x, y, tx, ty, c, kx, ky):
     _basis_funs(span_x, x, kx, tx, Nx)
     _basis_funs(span_y, y, ky, ty, Ny)
     
-    # Compute tensor product
+    # Tensor product
     result = 0.0
     my = len(ty) - ky - 1
     
@@ -109,7 +117,7 @@ def _bisplev_scalar(x, y, tx, ty, c, kx, ky):
        nopython=True, fastmath=True, boundscheck=False)
 def bisplev(x, y, tx, ty, c, kx, ky, result):
     """
-    B-spline evaluation that handles both scalar and array inputs.
+    Fast B-spline evaluation with automatic meshgrid detection.
     
     If x and y are 1D arrays:
     - If same length: evaluates at points (x[i], y[i])
