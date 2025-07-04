@@ -21,12 +21,12 @@ class TestSpline2D:
         # Test at grid points
         for i, xi in enumerate(x):
             for j, yi in enumerate(y):
-                result = spline(xi, yi, grid=False)
+                result = spline(xi, yi)
                 expected = xi + 2*yi
                 assert abs(result - expected) < 1e-12
         
         # Test at intermediate points
-        result = spline(0.5, 0.5, grid=False)
+        result = spline(0.5, 0.5)
         expected = 0.5 + 2*0.5  # = 1.5
         assert abs(result - expected) < 1e-12
 
@@ -45,8 +45,8 @@ class TestSpline2D:
         
         # Should give same results
         test_x, test_y = 0.3, 0.7
-        result1 = spline1(test_x, test_y, grid=False)
-        result2 = spline2(test_x, test_y, grid=False)
+        result1 = spline1(test_x, test_y)
+        result2 = spline2(test_x, test_y)
         assert abs(result1 - result2) < 1e-14
 
     def test_cubic_2d_spline(self):
@@ -64,7 +64,7 @@ class TestSpline2D:
         test_points = [(np.pi, np.pi/2), (np.pi/2, np.pi/4), (3*np.pi/2, 3*np.pi/4)]
         
         for test_x, test_y in test_points:
-            result = spline(test_x, test_y, grid=False)
+            result = spline(test_x, test_y)
             expected = np.sin(test_x) * np.cos(test_y)
             # Cubic spline should be reasonably accurate
             assert abs(result - expected) < 1e-2
@@ -122,9 +122,9 @@ class TestSpline2D:
         test_x = 0.2
         test_y = 0.3
         
-        val1 = spline(test_x, test_y, grid=False)
-        val2 = spline(test_x + 1.0, test_y, grid=False)  # Shift by period in x
-        val3 = spline(test_x, test_y + 1.0, grid=False)  # Shift by period in y
+        val1 = spline(test_x, test_y)
+        val2 = spline(test_x + 1.0, test_y)  # Shift by period in x
+        val3 = spline(test_x, test_y + 1.0)  # Shift by period in y
         
         # Relax tolerance for periodic boundary conditions
         assert abs(val1 - val2) < 1e-2
@@ -144,8 +144,8 @@ class TestSpline2D:
         
         # Test x-periodicity - relax tolerance
         test_y = 0.5
-        val1 = spline(np.pi/2, test_y, grid=False)
-        val2 = spline(np.pi/2 + 2*np.pi, test_y, grid=False)
+        val1 = spline(np.pi/2, test_y)
+        val2 = spline(np.pi/2 + 2*np.pi, test_y)
         assert abs(val1 - val2) < 1e-1
 
     def test_missing_data_handling(self):
@@ -179,7 +179,7 @@ class TestSpline2D:
         
         # Test evaluation at various regions
         # 1. Test at corners (should be valid)
-        result_corner = spline(0.0, 0.0, grid=False)
+        result_corner = spline(0.0, 0.0)
         assert np.isfinite(result_corner)
         expected_corner = 0.0**2 + 0.0**2
         assert abs(result_corner - expected_corner) < 1e-1
@@ -187,11 +187,11 @@ class TestSpline2D:
         # 2. Test near the hole boundary (should still interpolate)
         boundary_x = center_x + hole_radius * 1.2  # Just outside hole
         boundary_y = center_y
-        result_boundary = spline(boundary_x, boundary_y, grid=False)
+        result_boundary = spline(boundary_x, boundary_y)
         assert np.isfinite(result_boundary)
         
         # 3. Test at opposite corner
-        result_far = spline(1.0, 1.0, grid=False)
+        result_far = spline(1.0, 1.0)
         assert np.isfinite(result_far)
         expected_far = 1.0**2 + 1.0**2
         assert abs(result_far - expected_far) < 1e-1
@@ -277,12 +277,12 @@ class TestSpline2D:
         
         # Test interpolation at boundaries of each region
         # Left boundary
-        result_left = spline_left(0.5, 1.0, grid=False)
+        result_left = spline_left(0.5, 1.0)
         expected_left = 0.5 + 2*1.0  # = 2.5
         assert abs(result_left - expected_left) < 1e-12
         
         # Right boundary  
-        result_right = spline_right(3.5, 1.0, grid=False)
+        result_right = spline_right(3.5, 1.0)
         expected_right = 3.5 + 2*1.0  # = 5.5
         assert abs(result_right - expected_right) < 1e-12
         
@@ -296,7 +296,7 @@ class TestSpline2D:
         spline_frame = Spline2D(x_frame, y_frame, Z_frame.ravel(), kx=1, ky=1)
         
         # Test interpolation quality at frame points
-        result_frame = spline_frame(1.0, 1.0, grid=False)  # Center point
+        result_frame = spline_frame(1.0, 1.0)  # Center point
         expected_frame = 1.0**2 + 1.0**2  # = 2.0
         
         # Debug: check what we actually get
@@ -324,8 +324,8 @@ class TestSpline2D:
         
         # Compare interpolation quality at test point
         test_x, test_y = 0.5, 0.5
-        result_dense = spline_dense(test_x, test_y, grid=False)
-        result_sparse = spline_sparse(test_x, test_y, grid=False)
+        result_dense = spline_dense(test_x, test_y)
+        result_sparse = spline_sparse(test_x, test_y)
         analytical = np.sin(np.pi * test_x) * np.cos(np.pi * test_y)
         
         # Dense should be more accurate
@@ -363,8 +363,8 @@ class TestSpline2D:
         
         for test_x, test_y in test_points:
             if test_x <= x_sparse.max() and test_y <= y_sparse.max():
-                result_dense = spline_dense(test_x, test_y, grid=False)
-                result_sparse = spline_sparse(test_x, test_y, grid=False)
+                result_dense = spline_dense(test_x, test_y)
+                result_sparse = spline_sparse(test_x, test_y)
                 analytical = np.sin(test_x) * np.cos(test_y)
                 
                 # Dense should be more accurate
@@ -383,7 +383,7 @@ class TestSpline2D:
         z = np.array([1.0])
         
         spline = Spline2D(x, y, z, kx=1, ky=1)
-        result = spline(0.0, 0.0, grid=False)
+        result = spline(0.0, 0.0)
         assert abs(result - 1.0) < 1e-12
         
         # Small grid
@@ -394,11 +394,11 @@ class TestSpline2D:
         spline = Spline2D(x, y, z, kx=1, ky=1)
         
         # Test corners
-        assert abs(spline(0.0, 0.0, grid=False) - 0.0) < 1e-12
-        assert abs(spline(1.0, 1.0, grid=False) - 2.0) < 1e-12
+        assert abs(spline(0.0, 0.0) - 0.0) < 1e-12
+        assert abs(spline(1.0, 1.0) - 2.0) < 1e-12
         
         # Test center
-        assert abs(spline(0.5, 0.5, grid=False) - 1.0) < 1e-12
+        assert abs(spline(0.5, 0.5) - 1.0) < 1e-12
 
     def test_unstructured_data_api(self):
         """Test API compatibility with scipy.interpolate.bisplrep for unstructured data."""
@@ -414,14 +414,14 @@ class TestSpline2D:
         
         # Test evaluation at original points
         for i in range(min(5, n_points)):  # Test first 5 points
-            result = spline(x[i], y[i], grid=False)
+            result = spline(x[i], y[i])
             assert np.isfinite(result), f"Result not finite at point {i}"
         
         # Test evaluation at new points
         x_test = np.array([0.2, 0.5, 0.8])
         y_test = np.array([0.3, 0.6, 0.9])
         for xi, yi in zip(x_test, y_test):
-            result = spline(xi, yi, grid=False)
+            result = spline(xi, yi)
             assert np.isfinite(result), f"Result not finite at test point ({xi}, {yi})"
     
     def test_unstructured_vs_structured_comparison(self):
@@ -448,8 +448,8 @@ class TestSpline2D:
         y_test = np.array([0.25, 0.75])
         
         for xi, yi in zip(x_test, y_test):
-            result_structured = spline_structured(xi, yi, grid=False)
-            result_unstructured = spline_unstructured(xi, yi, grid=False)
+            result_structured = spline_structured(xi, yi)
+            result_unstructured = spline_unstructured(xi, yi)
             
             # They should be reasonably close (allowing for different algorithms)
             assert abs(result_structured - result_unstructured) < 0.1, \
@@ -472,11 +472,11 @@ class TestSpline2D:
         y_eval = np.linspace(-1, 1, 5)
         
         # Test single point evaluation
-        result = spline(0.0, 0.0, grid=False)
+        result = spline(0.0, 0.0)
         assert np.isfinite(result)
         
-        # Test grid evaluation
-        results = spline(x_eval, y_eval, grid=True)
+        # Test grid evaluation (different length arrays trigger meshgrid)
+        results = spline(x_eval, y_eval)
         assert results.shape == (len(x_eval), len(y_eval))
         assert np.all(np.isfinite(results))
 

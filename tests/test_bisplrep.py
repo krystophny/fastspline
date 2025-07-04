@@ -9,7 +9,7 @@ import os
 # Add parent directory to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from fastspline import bisplrep, bisplev
+from fastspline import bisplrep, bisplev, bisplev_scalar
 
 
 class TestBisplrepBasic:
@@ -35,7 +35,8 @@ class TestBisplrepBasic:
         # Evaluate at test points
         test_points = [(0.25, 0.25), (0.5, 0.5), (0.75, 0.75)]
         for xt, yt in test_points:
-            z_eval = bisplev(xt, yt, tck)
+            tx, ty, c, kx, ky = tck
+            z_eval = bisplev_scalar(xt, yt, tx, ty, c, kx, ky)
             z_true = xt**2 + yt**2
             assert abs(z_eval - z_true) < 0.01, f"Large error at ({xt}, {yt}): {abs(z_eval - z_true)}"
     
@@ -51,7 +52,8 @@ class TestBisplrepBasic:
         
         # Test exact interpolation at data points
         for i in range(len(x)):
-            z_eval = bisplev(x[i], y[i], tck)
+            tx, ty, c, kx, ky = tck
+            z_eval = bisplev_scalar(x[i], y[i], tx, ty, c, kx, ky)
             assert abs(z_eval - z[i]) < 1e-10, f"Interpolation error at point {i}"
 
 
@@ -80,7 +82,7 @@ class TestBisplrepVsSciPy:
         max_diff = 0
         for i in range(n_test):
             z_scipy = scipy_bisplev(x_test[i], y_test[i], tck)
-            z_ours = bisplev(x_test[i], y_test[i], tx, ty, c, kx, ky)
+            z_ours = bisplev_scalar(x_test[i], y_test[i], tx, ty, c, kx, ky)
             diff = abs(z_scipy - z_ours)
             max_diff = max(max_diff, diff)
         
@@ -112,7 +114,7 @@ class TestBisplrepVsSciPy:
         for i in range(n_test):
             for j in range(n_test):
                 z_scipy = scipy_bisplev(x_test[i], y_test[j], tck)
-                z_ours = bisplev(x_test[i], y_test[j], tx, ty, c, kx, ky)
+                z_ours = bisplev_scalar(x_test[i], y_test[j], tx, ty, c, kx, ky)
                 diff = abs(z_scipy - z_ours)
                 max_diff = max(max_diff, diff)
                 mean_diff += diff
@@ -138,7 +140,7 @@ class TestBisplrepVsSciPy:
         boundary_points = [(0, 0), (1, 0), (0, 1), (1, 1)]
         for i, (xt, yt) in enumerate(boundary_points):
             z_scipy = scipy_bisplev(xt, yt, tck)
-            z_ours = bisplev(xt, yt, tx, ty, c, kx, ky)
+            z_ours = bisplev_scalar(xt, yt, tx, ty, c, kx, ky)
             assert abs(z_scipy - z_ours) < 1e-14, f"Boundary error at ({xt}, {yt})"
 
 
@@ -156,18 +158,13 @@ class TestBisplrepRobustness:
         z = np.sin(2*x) * np.cos(2*y) + 0.1 * np.random.randn(n)
         
         # Our bisplrep should not crash
-        tx = np.zeros(50)
-        ty = np.zeros(50)
-        c = np.zeros(2500)
+        tck = bisplrep(x, y, z, kx=3, ky=3)
+        tx, ty, c, kx, ky = tck
         
-        result = bisplrep(x, y, z, 3, 3, tx, ty, c)
-        nx = (result >> 32) & 0xFFFFFFFF
-        ny = result & 0xFFFFFFFF
-        
-        assert nx > 0 and ny > 0, "Failed to produce valid knots"
+        assert len(tx) > 0 and len(ty) > 0, "Failed to produce valid knots"
         
         # Should be able to evaluate
-        z_eval = bisplev(0.0, 0.0, tx[:nx], ty[:ny], c[:nx*ny], 3, 3)
+        z_eval = bisplev_scalar(0.0, 0.0, tx, ty, c, kx, ky)
         assert np.isfinite(z_eval), "Evaluation produced non-finite result"
     
     def test_different_degrees(self):
@@ -190,7 +187,7 @@ class TestBisplrepRobustness:
                 tx_sp, ty_sp, c_sp, _, _ = tck
                 
                 # Evaluate with our bisplev
-                z_eval = bisplev(0.5, 0.5, tx_sp, ty_sp, c_sp, kx, ky)
+                z_eval = bisplev_scalar(0.5, 0.5, tx_sp, ty_sp, c_sp, kx, ky)
                 assert np.isfinite(z_eval), f"Failed for degrees ({kx}, {ky})"
                 
             except Exception:
@@ -223,7 +220,7 @@ class TestPerformance:
         z_grid = np.zeros((n_grid, n_grid))
         for i in range(n_grid):
             for j in range(n_grid):
-                z_grid[i, j] = bisplev(x_grid[i], y_grid[j], tx, ty, c, kx, ky)
+                z_grid[i, j] = bisplev_scalar(x_grid[i], y_grid[j], tx, ty, c, kx, ky)
         
         # Check that all values are reasonable
         assert np.all(np.isfinite(z_grid)), "Non-finite values in grid"

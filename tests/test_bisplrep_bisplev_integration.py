@@ -8,7 +8,7 @@ import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from fastspline import bisplrep, bisplev
+from fastspline import bisplrep, bisplev, bisplev_scalar
 
 
 def test_bisplrep_bisplev_integration():
@@ -37,7 +37,8 @@ def test_bisplrep_bisplev_integration():
     ]
     
     for xt, yt in test_points:
-        z_eval = bisplev(xt, yt, tck)
+        tx, ty, c, kx, ky = tck
+        z_eval = bisplev_scalar(xt, yt, tx, ty, c, kx, ky)
         z_true = np.exp(-(xt**2 + yt**2))
         error = abs(z_eval - z_true)
         print(f"Point ({xt:5.1f}, {yt:5.1f}): eval={z_eval:.4f}, true={z_true:.4f}, error={error:.2e}")
@@ -84,7 +85,8 @@ def test_compare_with_scipy_fit():
             z_scipy = scipy_bisplev(xt, yt, tck_scipy)
             
             # Our evaluation
-            z_ours = bisplev(xt, yt, tck_ours)
+            tx, ty, c, kx, ky = tck_ours
+            z_ours = bisplev_scalar(xt, yt, tx, ty, c, kx, ky)
             
             # Track differences
             max_scipy_ours_diff = max(max_scipy_ours_diff, abs(z_scipy - z_ours))
@@ -123,7 +125,7 @@ def test_scipy_knots_with_our_bisplev():
     max_diff = 0
     for i in range(n_test):
         z_scipy = scipy_bisplev(x_test[i], y_test[i], tck)
-        z_ours = bisplev(x_test[i], y_test[i], tx, ty, c, kx, ky)
+        z_ours = bisplev_scalar(x_test[i], y_test[i], tx, ty, c, kx, ky)
         diff = abs(z_scipy - z_ours)
         max_diff = max(max_diff, diff)
     

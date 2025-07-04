@@ -3,7 +3,7 @@
 
 import numpy as np
 from scipy.interpolate import bisplrep as scipy_bisplrep, bisplev as scipy_bisplev
-from fastspline import bisplrep, bisplev
+from fastspline import bisplrep, bisplev, bisplev_scalar
 
 def test_bisplev_shape_compatibility():
     """Test that bisplev returns same shapes as SciPy for different input combinations."""
@@ -15,8 +15,9 @@ def test_bisplev_shape_compatibility():
     y_data = np.random.uniform(-1, 1, 100)
     z_data = np.exp(-(x_data**2 + y_data**2)) * np.cos(np.pi * x_data)
     
-    # Fit spline with more relaxed smoothing to avoid warnings
-    tck = bisplrep(x_data, y_data, z_data, kx=3, ky=3, s=0.1)
+    # Fit spline with both systems
+    tck_scipy = scipy_bisplrep(x_data, y_data, z_data, kx=3, ky=3, s=0.1)
+    tck_ours = bisplrep(x_data, y_data, z_data, kx=3, ky=3, s=0.1)
     
     test_cases = [
         # Case 1: Both 1D arrays (should create meshgrid)
@@ -41,10 +42,34 @@ def test_bisplev_shape_compatibility():
         print(f"\nTesting {case_name}:")
         
         # SciPy result
-        result_scipy = scipy_bisplev(x_test, y_test, tck)
+        result_scipy = scipy_bisplev(x_test, y_test, tck_scipy)
         
         # FastSpline result
-        result_fast = bisplev(x_test, y_test, tck)
+        tx, ty, c, kx, ky = tck_ours
+        # Determine if we need array or scalar evaluation
+        if np.isscalar(x_test) and np.isscalar(y_test):
+            result_fast = bisplev_scalar(x_test, y_test, tx, ty, c, kx, ky)
+        else:
+            # Convert to arrays if needed
+            x_arr = np.asarray(x_test, dtype=np.float64)
+            y_arr = np.asarray(y_test, dtype=np.float64)
+            if x_arr.ndim == 0:
+                x_arr = np.array([x_arr])
+            if y_arr.ndim == 0:
+                y_arr = np.array([y_arr])
+            
+            # Determine output shape
+            if len(x_arr) == len(y_arr):
+                result_fast = np.zeros(len(x_arr), dtype=np.float64)
+            else:
+                result_fast = np.zeros((len(x_arr), len(y_arr)), dtype=np.float64)
+            
+            # Evaluate
+            bisplev(x_arr, y_arr, tx, ty, c, kx, ky, result_fast)
+            
+            # Handle scalar × array cases
+            if np.isscalar(x_test) or np.isscalar(y_test):
+                result_fast = result_fast.squeeze()
         
         # Check shapes
         if np.isscalar(result_scipy) and np.isscalar(result_fast):
@@ -89,16 +114,20 @@ def test_meshgrid_behavior():
     y_data = np.array([0.0, 1.0, 0.5, 1.5, 0.25, 0.75])
     z_data = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
     
-    # Fit spline
-    tck = bisplrep(x_data, y_data, z_data, kx=1, ky=1, s=0)
+    # Fit spline with both systems
+    tck_scipy = scipy_bisplrep(x_data, y_data, z_data, kx=1, ky=1, s=0)
+    tck_ours = bisplrep(x_data, y_data, z_data, kx=1, ky=1, s=0)
     
     # Test evaluation arrays
     x_eval = np.array([0.5, 1.5])  # 2 points
     y_eval = np.array([0.25, 0.75])  # 2 points
     
     # SciPy: Should create 2×2 meshgrid
-    result_scipy = scipy_bisplev(x_eval, y_eval, tck)
-    result_fast = bisplev(x_eval, y_eval, tck)
+    result_scipy = scipy_bisplev(x_eval, y_eval, tck_scipy)
+    tx, ty, c, kx, ky = tck_ours
+    # Since x_eval and y_eval have different lengths, bisplev will create meshgrid
+    result_fast = np.zeros((len(x_eval), len(y_eval)), dtype=np.float64)
+    bisplev(x_eval, y_eval, tx, ty, c, kx, ky, result_fast)
     
     print(f"Input x_eval shape: {x_eval.shape}")
     print(f"Input y_eval shape: {y_eval.shape}")
@@ -112,8 +141,9 @@ def test_meshgrid_behavior():
             x_pt, y_pt = x_eval[i], y_eval[j]
             
             # Single point evaluation
-            val_scipy = scipy_bisplev(x_pt, y_pt, tck)
-            val_fast = bisplev(x_pt, y_pt, tck)
+            val_scipy = scipy_bisplev(x_pt, y_pt, tck_scipy)
+            tx, ty, c, kx, ky = tck_ours
+            val_fast = bisplev_scalar(x_pt, y_pt, tx, ty, c, kx, ky)
             
             # Meshgrid evaluation
             val_scipy_mesh = result_scipy[i, j]
