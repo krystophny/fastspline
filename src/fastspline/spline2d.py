@@ -33,249 +33,73 @@ def _basis_functions(knots, k, i, x, N):
         N[j] = saved
 
 
+@njit(fastmath=True, cache=True)
+def _find_span(t, k, x):
+    """Find the knot span for x in knot vector t."""
+    n = len(t) - k - 1
+    if x >= t[n]:
+        return n - 1
+    if x <= t[k]:
+        return k
+    
+    # Binary search
+    low = k
+    high = n
+    mid = (low + high) // 2
+    while x < t[mid] or x >= t[mid + 1]:
+        if x < t[mid]:
+            high = mid
+        else:
+            low = mid
+        mid = (low + high) // 2
+    return mid
+
+
+@njit(fastmath=True, cache=True)
+def _basis_funs(i, x, k, t, N):
+    """Compute non-zero basis functions."""
+    N[0] = 1.0
+    left = np.zeros(k + 1)
+    right = np.zeros(k + 1)
+    
+    for j in range(1, k + 1):
+        left[j] = x - t[i + 1 - j]
+        right[j] = t[i + j] - x
+        saved = 0.0
+        
+        for r in range(j):
+            temp = N[r] / (right[r + 1] + left[j - r])
+            N[r] = saved + right[r + 1] * temp
+            saved = left[j - r] * temp
+        
+        N[j] = saved
+
+
 @cfunc(types.float64(types.float64, types.float64, types.float64[:], types.float64[:],
                      types.float64[:], types.int64, types.int64), 
        nopython=True, fastmath=True, boundscheck=False)
 def _bisplev_scalar(x, y, tx, ty, c, kx, ky):
     """
-    Scalar B-spline evaluation - evaluates at single point (x,y).
+    Fast B-spline evaluation optimized for performance.
     """
-    nx = len(tx)
-    ny = len(ty)
-    mx = nx - kx - 1
-    my = ny - ky - 1
+    # Find spans
+    span_x = _find_span(tx, kx, x)
+    span_y = _find_span(ty, ky, y)
     
-    # X direction knot span
-    n_x = len(tx) - kx - 1
-    if x >= tx[n_x]:
-        span_x = n_x - 1
-    elif x <= tx[kx]:
-        span_x = kx
-    else:
-        # Binary search - bit shift optimization
-        low = kx
-        high = n_x
-        while True:
-            mid = (low + high) >> 1  # Bit shift instead of division
-            if x < tx[mid]:
-                high = mid
-            elif x >= tx[mid + 1]:
-                low = mid
-            else:
-                span_x = mid
-                break
-    
-    # Y direction knot span  
-    n_y = len(ty) - ky - 1
-    if y >= ty[n_y]:
-        span_y = n_y - 1
-    elif y <= ty[ky]:
-        span_y = ky
-    else:
-        # Binary search - bit shift optimization
-        low = ky
-        high = n_y
-        while True:
-            mid = (low + high) >> 1  # Bit shift instead of division
-            if y < ty[mid]:
-                high = mid
-            elif y >= ty[mid + 1]:
-                low = mid
-            else:
-                span_y = mid
-                break
-    
-    # ULTRA-OPTIMIZED LINEAR CASE
-    if kx == 1 and ky == 1:
-        # Direct linear interpolation
-        alpha_x = (x - tx[span_x]) / (tx[span_x + 1] - tx[span_x])
-        alpha_y = (y - ty[span_y]) / (ty[span_y + 1] - ty[span_y])
-        
-        beta_x = 1.0 - alpha_x
-        beta_y = 1.0 - alpha_y
-        
-        base_idx = (span_x - 1) * my + (span_y - 1)
-        
-        # Unrolled tensor product
-        result = beta_x * beta_y * c[base_idx]
-        result += beta_x * alpha_y * c[base_idx + 1]
-        result += alpha_x * beta_y * c[base_idx + my]
-        result += alpha_x * alpha_y * c[base_idx + my + 1]
-        
-        return result
-    
-    # Mixed linear/cubic cases
-    elif kx == 1 and ky == 3:
-        # Linear x Cubic case
-        denom_x = tx[span_x + 1] - tx[span_x]
-        alpha_x = (x - tx[span_x]) / denom_x
-        Nx0 = 1.0 - alpha_x
-        Nx1 = alpha_x
-        
-        # Use _basis_functions for cubic y
-        Ny = np.zeros(4, dtype=np.float64)
-        _basis_functions(ty, 3, span_y, y, Ny)
-        
-        # Tensor product: 2x4 = 8 terms
-        idx_x = span_x - 1
-        idx_y = span_y - 3
-        
-        result = 0.0
-        for j in range(4):
-            result += Nx0 * Ny[j] * c[idx_x * my + (idx_y + j)]
-            result += Nx1 * Ny[j] * c[(idx_x + 1) * my + (idx_y + j)]
-        
-        return result
-        
-    elif kx == 3 and ky == 1:
-        # Cubic x Linear case
-        Nx = np.zeros(4, dtype=np.float64)
-        _basis_functions(tx, 3, span_x, x, Nx)
-        
-        denom_y = ty[span_y + 1] - ty[span_y]
-        alpha_y = (y - ty[span_y]) / denom_y
-        Ny0 = 1.0 - alpha_y
-        Ny1 = alpha_y
-        
-        # Tensor product: 4x2 = 8 terms
-        idx_x = span_x - 3
-        idx_y = span_y - 1
-        
-        result = 0.0
-        for i in range(4):
-            result += Nx[i] * Ny0 * c[(idx_x + i) * my + idx_y]
-            result += Nx[i] * Ny1 * c[(idx_x + i) * my + (idx_y + 1)]
-        
-        return result
-    
-    # Inline cubic x cubic case
-    elif kx == 3 and ky == 3:
-        # Inline cubic basis functions for x
-        Nx0, Nx1, Nx2, Nx3 = 1.0, 0.0, 0.0, 0.0
-        
-        # j=1
-        left1_x = x - tx[span_x]
-        right1_x = tx[span_x + 1] - x
-        saved = 0.0
-        temp = Nx0 / (right1_x + left1_x)
-        Nx0 = saved + right1_x * temp
-        saved = left1_x * temp
-        Nx1 = saved
-        
-        # j=2
-        left2_x = x - tx[span_x - 1]
-        right2_x = tx[span_x + 2] - x
-        saved = 0.0
-        # r=0
-        temp = Nx0 / (right1_x + left2_x)
-        Nx0 = saved + right1_x * temp
-        saved = left2_x * temp
-        # r=1
-        temp = Nx1 / (right2_x + left1_x)
-        Nx1 = saved + right2_x * temp
-        saved = left1_x * temp
-        Nx2 = saved
-        
-        # j=3
-        left3_x = x - tx[span_x - 2]
-        right3_x = tx[span_x + 3] - x
-        saved = 0.0
-        # r=0
-        temp = Nx0 / (right1_x + left3_x)
-        Nx0 = saved + right1_x * temp
-        saved = left3_x * temp
-        # r=1
-        temp = Nx1 / (right2_x + left2_x)
-        Nx1 = saved + right2_x * temp
-        saved = left2_x * temp
-        # r=2
-        temp = Nx2 / (right3_x + left1_x)
-        Nx2 = saved + right3_x * temp
-        saved = left1_x * temp
-        Nx3 = saved
-        
-        # Inline cubic basis functions for y
-        Ny0, Ny1, Ny2, Ny3 = 1.0, 0.0, 0.0, 0.0
-        
-        # j=1
-        left1_y = y - ty[span_y]
-        right1_y = ty[span_y + 1] - y
-        saved = 0.0
-        temp = Ny0 / (right1_y + left1_y)
-        Ny0 = saved + right1_y * temp
-        saved = left1_y * temp
-        Ny1 = saved
-        
-        # j=2
-        left2_y = y - ty[span_y - 1]
-        right2_y = ty[span_y + 2] - y
-        saved = 0.0
-        # r=0
-        temp = Ny0 / (right1_y + left2_y)
-        Ny0 = saved + right1_y * temp
-        saved = left2_y * temp
-        # r=1
-        temp = Ny1 / (right2_y + left1_y)
-        Ny1 = saved + right2_y * temp
-        saved = left1_y * temp
-        Ny2 = saved
-        
-        # j=3
-        left3_y = y - ty[span_y - 2]
-        right3_y = ty[span_y + 3] - y
-        saved = 0.0
-        # r=0
-        temp = Ny0 / (right1_y + left3_y)
-        Ny0 = saved + right1_y * temp
-        saved = left3_y * temp
-        # r=1
-        temp = Ny1 / (right2_y + left2_y)
-        Ny1 = saved + right2_y * temp
-        saved = left2_y * temp
-        # r=2
-        temp = Ny2 / (right3_y + left1_y)
-        Ny2 = saved + right3_y * temp
-        saved = left1_y * temp
-        Ny3 = saved
-        
-        # Tensor product: 4x4 = 16 terms (unrolled for speed)
-        idx_x = span_x - 3
-        idx_y = span_y - 3
-        
-        result = 0.0
-        result += Nx0 * Ny0 * c[idx_x * my + idx_y]
-        result += Nx0 * Ny1 * c[idx_x * my + (idx_y + 1)]
-        result += Nx0 * Ny2 * c[idx_x * my + (idx_y + 2)]
-        result += Nx0 * Ny3 * c[idx_x * my + (idx_y + 3)]
-        result += Nx1 * Ny0 * c[(idx_x + 1) * my + idx_y]
-        result += Nx1 * Ny1 * c[(idx_x + 1) * my + (idx_y + 1)]
-        result += Nx1 * Ny2 * c[(idx_x + 1) * my + (idx_y + 2)]
-        result += Nx1 * Ny3 * c[(idx_x + 1) * my + (idx_y + 3)]
-        result += Nx2 * Ny0 * c[(idx_x + 2) * my + idx_y]
-        result += Nx2 * Ny1 * c[(idx_x + 2) * my + (idx_y + 1)]
-        result += Nx2 * Ny2 * c[(idx_x + 2) * my + (idx_y + 2)]
-        result += Nx2 * Ny3 * c[(idx_x + 2) * my + (idx_y + 3)]
-        result += Nx3 * Ny0 * c[(idx_x + 3) * my + idx_y]
-        result += Nx3 * Ny1 * c[(idx_x + 3) * my + (idx_y + 1)]
-        result += Nx3 * Ny2 * c[(idx_x + 3) * my + (idx_y + 2)]
-        result += Nx3 * Ny3 * c[(idx_x + 3) * my + (idx_y + 3)]
-        
-        return result
-    
-    # Fall back to general case
-    Nx = np.zeros(kx + 1, dtype=np.float64)
-    Ny = np.zeros(ky + 1, dtype=np.float64)
-    
-    _basis_functions(tx, kx, span_x, x, Nx)
-    _basis_functions(ty, ky, span_y, y, Ny)
+    # Compute basis functions
+    Nx = np.zeros(kx + 1)
+    Ny = np.zeros(ky + 1)
+    _basis_funs(span_x, x, kx, tx, Nx)
+    _basis_funs(span_y, y, ky, ty, Ny)
     
     # Compute tensor product
     result = 0.0
+    my = len(ty) - ky - 1
+    
     for i in range(kx + 1):
         for j in range(ky + 1):
             coeff_idx = (span_x - kx + i) * my + (span_y - ky + j)
-            if 0 <= coeff_idx < len(c):
-                result += Nx[i] * Ny[j] * c[coeff_idx]
+            result += Nx[i] * Ny[j] * c[coeff_idx]
     
     return result
 

@@ -50,9 +50,14 @@ def basis_functions(knots, degree, span, u):
         saved = 0.0
         
         for r in range(j):
-            temp = N[r] / (right[r + 1] + left[j - r])
-            N[r] = saved + right[r + 1] * temp
-            saved = left[j - r] * temp
+            denom = right[r + 1] + left[j - r]
+            if abs(denom) > 1e-15:
+                temp = N[r] / denom
+                N[r] = saved + right[r + 1] * temp
+                saved = left[j - r] * temp
+            else:
+                N[r] = saved
+                saved = 0.0
         
         N[j] = saved
     
