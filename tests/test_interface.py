@@ -3,7 +3,8 @@
 
 import numpy as np
 from scipy.interpolate import bisplrep as scipy_bisplrep, bisplev as scipy_bisplev
-from fastspline.spline2d import bisplrep, bisplev
+from fastspline import bisplrep
+from fastspline.spline2d import bisplev
 
 def test_interface_compatibility():
     """Test that our interface works the same as scipy's."""

@@ -8,7 +8,7 @@ to floating point accuracy.
 import numpy as np
 import pytest
 from scipy import interpolate
-from fastspline.spline2d import bisplev_cfunc, Spline2D
+from fastspline import Spline2D, bisplev_scalar
 
 
 class TestBisplValidation:

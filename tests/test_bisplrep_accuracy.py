@@ -6,8 +6,7 @@ from scipy.interpolate import bisplrep as scipy_bisplrep, bisplev as scipy_bispl
 import sys
 
 sys.path.insert(0, 'src')
-from fastspline.bisplrep_cfunc import bisplrep
-from fastspline import bisplev
+from fastspline import bisplrep, bisplev_scalar as bisplev
 
 
 def compare_knots(tx1, ty1, tx2, ty2, nx1, ny1, nx2, ny2):

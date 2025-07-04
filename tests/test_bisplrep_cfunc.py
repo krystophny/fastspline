@@ -8,8 +8,7 @@ from scipy.interpolate import bisplrep as scipy_bisplrep, bisplev as scipy_bispl
 
 # Import our cfunc
 sys.path.insert(0, 'src')
-from fastspline.bisplrep_cfunc import bisplrep
-from fastspline import bisplev
+from fastspline import bisplrep, bisplev_scalar as bisplev
 
 
 def test_simple_surface():

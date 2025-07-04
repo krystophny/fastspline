@@ -8,7 +8,7 @@ This test ensures machine precision agreement before benchmarking performance.
 import numpy as np
 import time
 from scipy.interpolate import bisplrep, bisplev
-from fastspline.spline2d import bisplev_cfunc, bisplev_cfunc_ultra
+from fastspline import bisplev_scalar
 
 def test_accuracy_comprehensive():
     """Comprehensive accuracy test across multiple scenarios."""

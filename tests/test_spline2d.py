@@ -1,6 +1,6 @@
 import numpy as np
 import pytest
-from fastspline.spline2d import Spline2D, evaluate_spline_2d_cfunc, evaluate_spline_2d_derivatives_cfunc, bisplev_cfunc
+from fastspline import Spline2D, bisplev_scalar
 
 
 class TestSpline2D:

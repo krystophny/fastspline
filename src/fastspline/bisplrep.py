@@ -273,11 +273,42 @@ def bisplrep_qr(x_data, y_data, z_data, w_data, kx, ky, s,
     return (nx << 32) | ny
 
 
-# Python wrapper for testing
-def bisplrep_qr_py(x, y, z, w=None, kx=3, ky=3, s=0):
-    """Python wrapper for QR-based bisplrep."""
+# Export cfunc with standard name
+bisplrep_cfunc = bisplrep_qr
+
+
+def bisplrep(x, y, z, w=None, kx=3, ky=3, s=0, task=0):
+    """Find a bivariate B-spline representation of a surface.
+    
+    Uses QR decomposition for numerical stability.
+    
+    Parameters
+    ----------
+    x, y, z : array_like
+        1-D arrays of data points (x[i], y[i], z[i]).
+    w : array_like, optional
+        Positive 1-D array of weights.
+    kx, ky : int, optional
+        Degrees of the bivariate spline. Default is 3.
+    s : float, optional
+        Smoothing factor. Default is 0 (interpolating spline).
+    task : int, optional
+        For compatibility with scipy. Not used.
+        
+    Returns
+    -------
+    tck : tuple
+        A tuple (tx, ty, c, kx, ky) containing the knots (tx, ty) and
+        coefficients (c) of the bivariate B-spline representation.
+    """
     if w is None:
         w = np.ones_like(x)
+    
+    # Convert to numpy arrays
+    x = np.asarray(x, dtype=np.float64)
+    y = np.asarray(y, dtype=np.float64)
+    z = np.asarray(z, dtype=np.float64)
+    w = np.asarray(w, dtype=np.float64)
     
     # Allocate arrays
     nxest = min(int(kx + np.sqrt(2*len(x))), 50)
