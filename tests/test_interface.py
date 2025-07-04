@@ -3,8 +3,7 @@
 
 import numpy as np
 from scipy.interpolate import bisplrep as scipy_bisplrep, bisplev as scipy_bisplev
-from fastspline import bisplrep
-from fastspline.spline2d import bisplev
+from fastspline import bisplrep, bisplev, bisplev_scalar
 
 def test_interface_compatibility():
     """Test that our interface works the same as scipy's."""
@@ -28,7 +27,10 @@ def test_interface_compatibility():
     print("\nTesting bisplev with scalar inputs...")
     x_test, y_test = 0.5, 0.5
     result_scipy = scipy_bisplev(x_test, y_test, tck_scipy)
-    result_fast = bisplev(x_test, y_test, tck_fast)
+    
+    # FastSpline uses bisplev_scalar for single point evaluation
+    tx, ty, c, kx, ky = tck_fast
+    result_fast = bisplev_scalar(x_test, y_test, tx, ty, c, kx, ky)
     
     print(f"SciPy result: {result_scipy}")
     print(f"FastSpline result: {result_fast}")
@@ -44,7 +46,7 @@ def test_interface_compatibility():
     
     for x_pt, y_pt in zip(x_points, y_points):
         results_scipy.append(scipy_bisplev(x_pt, y_pt, tck_scipy))
-        results_fast.append(bisplev(x_pt, y_pt, tck_fast))
+        results_fast.append(bisplev_scalar(x_pt, y_pt, tx, ty, c, kx, ky))
     
     results_scipy = np.array(results_scipy)
     results_fast = np.array(results_fast)
@@ -57,7 +59,9 @@ def test_interface_compatibility():
     print("\nTesting FastSpline array interface...")
     x_test = np.array([0.0, 0.5, -0.5])
     y_test = np.array([0.0, 0.5, -0.5])
-    results_fast_array = bisplev(x_test, y_test, tck_fast)
+    # Pre-allocate result array for bisplev
+    results_fast_array = np.zeros(3)
+    bisplev(x_test, y_test, tx, ty, c, kx, ky, results_fast_array)
     
     print(f"FastSpline array results: {results_fast_array}")
     print(f"Matches individual calls: {np.allclose(results_fast, results_fast_array)}")
@@ -68,7 +72,8 @@ def test_interface_compatibility():
     tck_fast_linear = bisplrep(x, y, z, kx=1, ky=1, s=0)
     
     result_scipy_linear = scipy_bisplev(0.25, 0.25, tck_scipy_linear)
-    result_fast_linear = bisplev(0.25, 0.25, tck_fast_linear)
+    tx_lin, ty_lin, c_lin, kx_lin, ky_lin = tck_fast_linear
+    result_fast_linear = bisplev_scalar(0.25, 0.25, tx_lin, ty_lin, c_lin, kx_lin, ky_lin)
     
     print(f"Linear SciPy: {result_scipy_linear}")
     print(f"Linear FastSpline: {result_fast_linear}")
