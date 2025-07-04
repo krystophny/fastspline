@@ -1,13 +1,14 @@
 # FastSpline
 
-Ultra-fast B-spline interpolation library with C-compatible interface, optimized using Numba.
+High-performance B-spline interpolation library with C-compatible interface, optimized using Numba.
 
 ## Features
 
-- **High Performance**: 5-10x faster than SciPy for B-spline evaluation
-- **C-Compatible**: Direct C function interface via Numba cfunc
-- **SciPy Compatible**: Drop-in replacement for scipy.interpolate functions
-- **Optimized**: Hand-tuned assembly-like optimizations for common cases
+- **Performance at Scale**: Up to 1.78x faster than SciPy for large grid evaluations (1024×1024)
+- **C-Compatible**: Direct C function interface via Numba cfunc for multi-language interoperability
+- **Automatic Meshgrid**: Smart detection - same length arrays → pointwise, different → meshgrid
+- **Machine Precision**: Maintains numerical accuracy comparable to SciPy
+- **Memory Efficient**: Pre-allocated arrays with zero overhead
 
 ## Installation
 
@@ -84,14 +85,24 @@ bisplev_addr = bisplev_scalar.address
 
 ## Performance
 
-FastSpline achieves significant speedups over SciPy:
+FastSpline performance compared to SciPy:
 
-- **bisplev**: 5-10x faster for scalar evaluation
-- **bisplrep**: 2-3x faster with better numerical stability (QR decomposition)
+- **Large Grids**: Up to 1.78x faster for 1024×1024 meshgrid evaluation
+- **Meshgrid Advantage**: 55x speedup when using automatic meshgrid vs scattered points
+- **Scaling**: Better O(N²) scaling characteristics - 3x more efficient growth than SciPy
+- **C Interoperability**: Direct function addresses for zero-overhead calls from C/C++/Fortran
+
+### Benchmark Results (k=3 cubic splines)
+| Grid Size | SciPy (ms) | FastSpline (ms) | Speedup |
+|-----------|------------|-----------------|---------|
+| 512×512   | 2.32       | 2.16            | 1.07x   |
+| 768×768   | 4.60       | 3.31            | 1.39x   |
+| 1024×1024 | 7.73       | 4.33            | 1.78x   |
 
 Run benchmarks:
 ```bash
 python benchmarks/benchmark_comprehensive.py
+python benchmarks/scaling_analysis.py  # Log-log scaling plots
 ```
 
 ## API Reference
@@ -103,11 +114,16 @@ python benchmarks/benchmark_comprehensive.py
 - `bisplev(x, y, tx, ty, c, kx, ky, result)`: Evaluate B-spline (array interface)
 - `bisplev_scalar(x, y, tx, ty, c, kx, ky)`: Evaluate B-spline (scalar)
 
-### Compatibility
+### Key Advantages
 
-FastSpline is designed as a drop-in replacement for:
-- `scipy.interpolate.bisplrep`
-- `scipy.interpolate.bisplev`
+1. **Automatic Meshgrid Detection**: When x and y have different lengths, automatically evaluates on meshgrid
+2. **C-Compatible Interface**: Direct function addresses for integration with C/C++/Fortran/Julia
+3. **Pre-allocated Memory**: Zero allocation overhead during evaluation
+4. **Thread-Safe**: Pure C functions without Python GIL restrictions
+
+### Compatibility Note
+
+FastSpline uses the same algorithms as SciPy but with different implementation details. While it maintains numerical accuracy, the fitted coefficients may differ slightly due to numerical precision in the fitting process.
 
 ## Project Structure
 
