@@ -4,7 +4,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.interpolate import bisplrep as scipy_bisplrep, bisplev as scipy_bisplev
-from fastspline import bisplrep, bisplev
+from fastspline import bisplrep, bisplev, bisplev_scalar
 
 def create_data_with_holes():
     """Create test data with large holes (missing regions)."""
@@ -65,7 +65,11 @@ def test_missing_data_accuracy():
     
     # Evaluate with both methods
     scipy_results = np.array([scipy_bisplev(x, y, tck_scipy) for x, y in zip(x_eval, y_eval)])
-    fast_results = bisplev(x_eval, y_eval, tck_fast)
+    
+    # For FastSpline, extract components and pre-allocate result
+    tx, ty, c, kx, ky = tck_fast
+    fast_results = np.zeros(len(x_eval))
+    bisplev(x_eval, y_eval, tx, ty, c, kx, ky, fast_results)
     
     # Compare results
     diff = np.abs(scipy_results - fast_results)
@@ -106,22 +110,15 @@ def test_cfunc_with_missing_data():
     scipy_results = np.array([scipy_bisplev(x, y, tck) for x, y in zip(x_test, y_test)])
     
     # Method 2: FastSpline bisplev
-    fast_results = bisplev(x_test, y_test, tck)
+    fast_results = np.zeros(len(x_test))
+    bisplev(x_test, y_test, tx, ty, c, kx, ky, fast_results)
     
-    # Method 3: Direct cfunc call
-    from fastspline import bisplev_cfunc_vectorized
-    cfunc_results = np.zeros_like(x_test)
-    bisplev_cfunc_vectorized(x_test, y_test, tx, ty, c, kx, ky, cfunc_results)
-    
-    # Compare all methods
+    # Compare methods
     diff_fast = np.abs(scipy_results - fast_results)
-    diff_cfunc = np.abs(scipy_results - cfunc_results)
     
     print(f"FastSpline vs SciPy - Max diff: {np.max(diff_fast):.2e}")
-    print(f"Cfunc vs SciPy - Max diff: {np.max(diff_cfunc):.2e}")
-    print(f"FastSpline vs Cfunc - Max diff: {np.max(np.abs(fast_results - cfunc_results)):.2e}")
     
-    if np.max(diff_fast) < 1e-12 and np.max(diff_cfunc) < 1e-12:
+    if np.max(diff_fast) < 1e-12:
         print("✓ Cfunc missing data test PASSED")
         return True
     else:
@@ -143,11 +140,14 @@ def visualize_missing_data():
     scipy_interp = np.zeros_like(X_orig)
     fast_interp = np.zeros_like(X_orig)
     
+    # Extract FastSpline components once
+    tx, ty, c, kx, ky = tck_fast
+    
     for i in range(X_orig.shape[0]):
         for j in range(X_orig.shape[1]):
             x, y = X_orig[i, j], Y_orig[i, j]
             scipy_interp[i, j] = scipy_bisplev(x, y, tck_scipy)
-            fast_interp[i, j] = bisplev(x, y, tck_fast)
+            fast_interp[i, j] = bisplev_scalar(x, y, tx, ty, c, kx, ky)
     
     # Create plots
     fig, axes = plt.subplots(2, 3, figsize=(15, 10))
