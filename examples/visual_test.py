@@ -2,7 +2,7 @@
 """Visual test of 1D spline interpolation using fortplotlib."""
 
 import numpy as np
-import fortplotlib.fortplot as plt
+import matplotlib.pyplot as plt
 from fastspline import Spline1D
 
 
