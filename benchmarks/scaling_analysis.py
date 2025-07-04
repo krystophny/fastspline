@@ -29,7 +29,7 @@ result_warm = np.zeros((5, 5))
 bisplev(x_warm, y_warm, tx, ty, c, kx, ky, result_warm)
 
 # Test grid sizes (powers of 2 for clear scaling)
-grid_sizes = [8, 16, 24, 32, 48, 64, 96, 128, 192, 256, 384, 512]
+grid_sizes = [8, 16, 24, 32, 48, 64, 96, 128, 192, 256, 384, 512, 768, 1024]
 points = []
 scipy_times = []
 fast_times = []
@@ -115,7 +115,6 @@ plt.legend()
 plt.grid(True, alpha=0.3)
 
 plt.tight_layout()
-plt.savefig('benchmarks/scaling_analysis.png', dpi=300, bbox_inches='tight')
 plt.savefig('benchmarks/scaling_analysis.pdf', bbox_inches='tight')
 
 print(f"\nScaling Analysis Summary:")
@@ -125,7 +124,7 @@ print(f"- Best speedup: {max(speedups):.2f}x at {grid_sizes[speedups.index(max(s
 print(f"- Average speedup: {np.mean(speedups):.2f}x")
 print(f"- Large grid speedup (≥128x128): {np.mean([s for i, s in enumerate(speedups) if grid_sizes[i] >= 128]):.2f}x")
 
-print(f"\nPlots saved to: benchmarks/scaling_analysis.png and .pdf")
+print(f"\nPlot saved to: benchmarks/scaling_analysis.pdf")
 
 # Show theoretical scaling
 print(f"\nTheoretical Scaling Analysis:")
