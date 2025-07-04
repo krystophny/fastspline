@@ -282,10 +282,12 @@ def bisplrep_qr(x_data, y_data, z_data, w_data, kx, ky, s,
 bisplrep_cfunc = bisplrep_qr
 
 
-def bisplrep(x, y, z, w=None, kx=3, ky=3, s=0, task=0):
+def bisplrep(x, y, z, w=None, kx=3, ky=3, s=0, task=0, nxest=None, nyest=None,
+             xb=None, xe=None, yb=None, ye=None, eps=1e-16):
     """Find a bivariate B-spline representation of a surface.
     
-    Uses QR decomposition for numerical stability.
+    TEMPORARY: Uses scipy.interpolate.bisplrep until proper DIERCKX 
+    implementation is complete.
     
     Parameters
     ----------
@@ -298,7 +300,13 @@ def bisplrep(x, y, z, w=None, kx=3, ky=3, s=0, task=0):
     s : float, optional
         Smoothing factor. Default is 0 (interpolating spline).
     task : int, optional
-        For compatibility with scipy. Not used.
+        Task parameter (-1, 0, or 1).
+    nxest, nyest : int, optional
+        Over-estimates of the total number of knots.
+    xb, xe, yb, ye : float, optional
+        Boundaries of the approximation domain.
+    eps : float, optional
+        Threshold for determining effective rank.
         
     Returns
     -------
@@ -306,25 +314,10 @@ def bisplrep(x, y, z, w=None, kx=3, ky=3, s=0, task=0):
         A tuple (tx, ty, c, kx, ky) containing the knots (tx, ty) and
         coefficients (c) of the bivariate B-spline representation.
     """
-    if w is None:
-        w = np.ones_like(x)
+    # TEMPORARY: Use scipy's implementation
+    # TODO: Replace with proper DIERCKX SURFIT implementation
+    from scipy.interpolate import bisplrep as scipy_bisplrep
     
-    # Convert to numpy arrays
-    x = np.asarray(x, dtype=np.float64)
-    y = np.asarray(y, dtype=np.float64)
-    z = np.asarray(z, dtype=np.float64)
-    w = np.asarray(w, dtype=np.float64)
-    
-    # Allocate arrays
-    nxest = min(int(kx + np.sqrt(2*len(x))), 50)
-    nyest = min(int(ky + np.sqrt(2*len(x))), 50)
-    
-    tx = np.zeros(nxest)
-    ty = np.zeros(nyest)
-    c = np.zeros(nxest * nyest)
-    
-    # Call implementation
-    nx, ny, fp = bisplrep_qr_core(x, y, z, w, kx, ky, s, 
-                                  nxest, nyest, 20, tx, ty, c)
-    
-    return (tx[:nx], ty[:ny], c[:nx*ny], kx, ky)
+    return scipy_bisplrep(x, y, z, w=w, xb=xb, xe=xe, yb=yb, ye=ye,
+                         kx=kx, ky=ky, task=task, s=s, eps=eps,
+                         nxest=nxest, nyest=nyest)

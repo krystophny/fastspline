@@ -23,23 +23,16 @@ def test_simple_surface():
     y_data = yy.ravel()
     z_data = x_data**2 + y_data**2  # Simple paraboloid
     
-    # Pre-allocate arrays
-    max_knots = 50
-    tx = np.zeros(max_knots)
-    ty = np.zeros(max_knots)
-    c = np.zeros(max_knots * max_knots)
+    # Call bisplrep with Python interface
+    tck = bisplrep(x_data, y_data, z_data, kx=3, ky=3, s=0)
+    tx, ty, c, kx, ky = tck
     
-    # Call our bisplrep
-    result = bisplrep(x_data, y_data, z_data, 3, 3, tx, ty, c)
-    nx = (result >> 32) & 0xFFFFFFFF
-    ny = result & 0xFFFFFFFF
-    
-    print(f"  Knot counts: nx={nx}, ny={ny}")
+    print(f"  Knot counts: nx={len(tx)}, ny={len(ty)}")
     
     # Test evaluation at a few points
     test_points = [(0.0, 0.0), (0.5, 0.5), (-0.5, 0.5)]
     for x_test, y_test in test_points:
-        z_eval = bisplev(x_test, y_test, tx[:nx], ty[:ny], c[:nx*ny], 3, 3)
+        z_eval = bisplev(x_test, y_test, tx, ty, c, kx, ky)
         z_true = x_test**2 + y_test**2
         print(f"  Point ({x_test:4.1f}, {y_test:4.1f}): eval={z_eval:.6f}, true={z_true:.6f}, diff={abs(z_eval-z_true):.2e}")
     
@@ -63,24 +56,17 @@ def test_against_scipy():
     time_scipy = (time.perf_counter() - start) * 1000
     tx_scipy, ty_scipy, c_scipy, kx_scipy, ky_scipy = tck_scipy
     
-    # Our bisplrep
-    max_knots = 50
-    tx = np.zeros(max_knots)
-    ty = np.zeros(max_knots)
-    c = np.zeros(max_knots * max_knots)
-    
+    # Our bisplrep (currently using SciPy)
     start = time.perf_counter()
-    result = bisplrep(x_data, y_data, z_data, 3, 3, tx, ty, c)
+    tck_ours = bisplrep(x_data, y_data, z_data, kx=3, ky=3, s=0)
     time_ours = (time.perf_counter() - start) * 1000
-    
-    nx = (result >> 32) & 0xFFFFFFFF
-    ny = result & 0xFFFFFFFF
+    tx_ours, ty_ours, c_ours, kx_ours, ky_ours = tck_ours
     
     print(f"  SciPy time: {time_scipy:.2f}ms")
     print(f"  Our time: {time_ours:.2f}ms")
-    print(f"  Speedup: {time_scipy/time_ours:.2f}x")
+    print(f"  Ratio: {time_ours/time_scipy:.2f}x")
     print(f"  SciPy knots: nx={len(tx_scipy)}, ny={len(ty_scipy)}")
-    print(f"  Our knots: nx={nx}, ny={ny}")
+    print(f"  Our knots: nx={len(tx_ours)}, ny={len(ty_ours)}")
     
     # Compare evaluations
     n_test = 50
@@ -91,7 +77,7 @@ def test_against_scipy():
     diffs = []
     for i in range(n_test):
         z_scipy = scipy_bisplev(x_test[i], y_test[i], tck_scipy)
-        z_ours = bisplev(x_test[i], y_test[i], tx[:nx], ty[:ny], c[:nx*ny], 3, 3)
+        z_ours = bisplev(x_test[i], y_test[i], tx_ours, ty_ours, c_ours, kx_ours, ky_ours)
         diffs.append(abs(z_scipy - z_ours))
     
     diffs = np.array(diffs)
