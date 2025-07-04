@@ -286,8 +286,7 @@ def bisplrep(x, y, z, w=None, kx=3, ky=3, s=0, task=0, nxest=None, nyest=None,
              xb=None, xe=None, yb=None, ye=None, eps=1e-16):
     """Find a bivariate B-spline representation of a surface.
     
-    TEMPORARY: Uses scipy.interpolate.bisplrep until proper DIERCKX 
-    implementation is complete.
+    DIERCKX-compatible implementation of SURFIT algorithm.
     
     Parameters
     ----------
@@ -300,7 +299,7 @@ def bisplrep(x, y, z, w=None, kx=3, ky=3, s=0, task=0, nxest=None, nyest=None,
     s : float, optional
         Smoothing factor. Default is 0 (interpolating spline).
     task : int, optional
-        Task parameter (-1, 0, or 1).
+        Task parameter (-1, 0, or 1). Currently ignored.
     nxest, nyest : int, optional
         Over-estimates of the total number of knots.
     xb, xe, yb, ye : float, optional
@@ -314,10 +313,9 @@ def bisplrep(x, y, z, w=None, kx=3, ky=3, s=0, task=0, nxest=None, nyest=None,
         A tuple (tx, ty, c, kx, ky) containing the knots (tx, ty) and
         coefficients (c) of the bivariate B-spline representation.
     """
-    # TEMPORARY: Use scipy's implementation
-    # TODO: Replace with proper DIERCKX SURFIT implementation
-    from scipy.interpolate import bisplrep as scipy_bisplrep
+    # DIERCKX SURFIT implementation
+    from .dierckx_bisplrep import bisplrep_dierckx
     
-    return scipy_bisplrep(x, y, z, w=w, xb=xb, xe=xe, yb=yb, ye=ye,
-                         kx=kx, ky=ky, task=task, s=s, eps=eps,
-                         nxest=nxest, nyest=nyest)
+    return bisplrep_dierckx(x, y, z, w=w, xb=xb, xe=xe, yb=yb, ye=ye,
+                           kx=kx, ky=ky, s=s, nxest=nxest, nyest=nyest, 
+                           eps=eps, task=task)
