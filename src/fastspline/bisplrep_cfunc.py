@@ -4,11 +4,7 @@ Optimized DIERCKX-compatible bisplrep with cfunc interface.
 
 import numpy as np
 from numba import njit, cfunc, types
-from .bisplrep_qr import (
-    find_span, basis_funs, givens_rotation, qr_decomposition_givens,
-    back_substitution, build_design_matrix, fit_spline_qr, add_knot,
-    bisplrep_qr_fit
-)
+from .bisplrep_dierckx import bisplrep_dierckx_core
 
 
 @cfunc(types.int64(types.float64[:], types.float64[:], types.float64[:],
@@ -37,8 +33,8 @@ def bisplrep_cfunc(x, y, z, w, kx, ky, s, tx_out, ty_out, c_out):
     nxest = len(tx_out)
     nyest = len(ty_out)
     
-    nx, ny, fp = bisplrep_qr_fit(x, y, z, w, kx, ky, s, nxest, nyest,
-                                 tx_out, ty_out, c_out)
+    nx, ny, fp = bisplrep_dierckx_core(x, y, z, w, kx, ky, s, nxest, nyest,
+                                       tx_out, ty_out, c_out)
     
     return (nx << 32) | ny
 

@@ -22,11 +22,14 @@ class TestBisplrepAccuracy:
         # Fit with linear spline
         tck = bisplrep(x, y, z, kx=1, ky=1, s=0)
         
-        # Evaluate at test points
+        # Evaluate at test points (bisplev does meshgrid evaluation)
         x_test = np.array([0.25, 0.75])
         y_test = np.array([0.25, 0.75])
         z_eval = bisplev(x_test, y_test, tck)
-        z_true = 1 + 2*x_test + 3*y_test
+        
+        # For meshgrid evaluation
+        xx_test, yy_test = np.meshgrid(x_test, y_test)
+        z_true = 1 + 2*xx_test + 3*yy_test
         
         assert np.allclose(z_eval, z_true, rtol=1e-14)
     
@@ -67,12 +70,12 @@ class TestBisplrepAccuracy:
         tck = bisplrep(x, y, z, w=w, kx=1, ky=1, s=0)
         
         # Check that fit is close to true values at corners
-        corners_x = np.array([0, 1, 0, 1])
-        corners_y = np.array([0, 0, 1, 1])
-        z_eval = bisplev(corners_x, corners_y, tck)
-        z_expected = np.array([0, 1, 1, 2])
+        # Evaluate each corner separately since bisplev does meshgrid
+        corners = [(0, 0, 0), (1, 0, 1), (0, 1, 1), (1, 1, 2)]
         
-        assert np.allclose(z_eval, z_expected, atol=0.1)
+        for x_c, y_c, z_expected in corners:
+            z_eval = bisplev(np.array([x_c]), np.array([y_c]), tck)
+            assert np.abs(z_eval - z_expected) < 0.1
 
 
 class TestBisplrepInterface:
@@ -179,13 +182,15 @@ class TestBisplrepPerformance:
         z_mesh = bisplev(x_eval, y_eval, tck)
         assert z_mesh.shape == (50, 50)
         
-        # Pointwise evaluation (same length)
-        z_point = bisplev(x_eval, y_eval, tck)
-        assert z_point.shape == (50,)
+        # Different length arrays - also meshgrid
+        x_eval2 = np.linspace(0, 1, 30)
+        y_eval2 = np.linspace(0, 1, 40)
+        z_mesh2 = bisplev(x_eval2, y_eval2, tck)
+        assert z_mesh2.shape == (40, 30)  # Note: SciPy returns (ny, nx)
         
         # Scalar evaluation
-        z_scalar = bisplev(np.array([0.5]), np.array([0.5]), tck)
-        assert z_scalar.shape == ()
+        z_scalar = bisplev(0.5, 0.5, tck)
+        assert isinstance(z_scalar, float)
 
 
 if __name__ == "__main__":

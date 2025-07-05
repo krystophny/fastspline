@@ -6,8 +6,9 @@ optimized with Numba for 5-10x speedups on common workloads.
 """
 
 from .spline1d import Spline1D
-from .spline2d import Spline2D, bisplev, bisplev_scalar
-from .bisplrep_cfunc import bisplrep
+from .spline2d import Spline2D
+from .bisplrep_dierckx import bisplrep_dierckx as bisplrep
+from .bisplev_dierckx import bisplev, bisplev_scalar_dierckx as bisplev_scalar
 
 __version__ = "0.1.0"
 __all__ = ["Spline1D", "Spline2D", "bisplrep", "bisplev", "bisplev_scalar"]
