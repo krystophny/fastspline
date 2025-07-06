@@ -334,36 +334,50 @@ def fprati_ultra(p1, f1, p2, f2, p3, f3):
 
 @njit(fastmath=True, cache=True, boundscheck=False, nogil=True)
 def fpbspl_ultra(t, n, k, x, l):
-    """Ultra-optimized fpbspl with maximum performance - DIERCKX algorithm"""
-    EPS = 1e-15
-    
-    # Use static stack array for maximum speed
+    """Ultra-optimized fpbspl - EXACT DIERCKX FORTRAN ALGORITHM"""
+    # Initialize result array
     h = np.zeros(k + 1, dtype=np.float64)
+    
+    # h[1] = 1.0 in FORTRAN becomes h[0] = 1.0 in Python
     h[0] = 1.0
     
     # Temporary storage
     hh = np.zeros(k, dtype=np.float64)
     
-    # DIERCKX algorithm - stable recurrence relation
+    # Main loop - exact translation from FORTRAN
     for j in range(1, k + 1):
-        # Save current h values
+        # Save h values - FORTRAN loop: do 10 i=1,j
         for i in range(j):
             hh[i] = h[i]
         
-        # Reset h[0]
+        # h[1] = 0 in FORTRAN
         h[0] = 0.0
         
-        # Recurrence relation
-        for i in range(j):
-            li = l + i + 1
+        # FORTRAN loop: do 20 i=1,j
+        for i in range(1, j + 1):
+            # FORTRAN: li = l+i, lj = li-j
+            # Note: FORTRAN arrays are 1-based, Python 0-based
+            # So FORTRAN t(li) becomes Python t[li-1]
+            li = l + i
             lj = li - j
             
-            if lj >= 0 and li < n and abs(t[li] - t[lj]) > EPS:
-                f = hh[i] / (t[li] - t[lj])
-                h[i] = h[i] + f * (t[li] - x)
-                h[i + 1] = f * (x - t[lj])
+            # Convert to 0-based for array access
+            li_idx = li - 1
+            lj_idx = lj - 1
+            
+            if lj_idx >= 0 and li_idx < n:
+                denom = t[li_idx] - t[lj_idx]
+                if abs(denom) > 1e-10:
+                    # FORTRAN: f = hh(i)/(t(li)-t(lj))
+                    f = hh[i-1] / denom
+                    # FORTRAN: h(i) = h(i)+f*(t(li)-x)
+                    h[i-1] = h[i-1] + f * (t[li_idx] - x)
+                    # FORTRAN: h(i+1) = f*(x-t(lj))
+                    h[i] = f * (x - t[lj_idx])
+                else:
+                    h[i] = 0.0
             else:
-                h[i + 1] = 0.0
+                h[i] = 0.0
     
     return h
 
