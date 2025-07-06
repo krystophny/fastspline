@@ -5,6 +5,7 @@ __pycache__/
 
 # C extensions
 *.so
+dierckx_f2py.cpython-*.so
 
 # Distribution / packaging
 .Python
