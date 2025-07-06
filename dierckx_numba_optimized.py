@@ -352,8 +352,8 @@ def fprank_njit(a, f, n, m, na, tol, c, aa, ff, h):
     """Optimized fprank maintaining original API"""
     return fprank_njit_opt(a, f, n, m, na, tol, c, aa, ff, h)
 
-# Keep the complex functions from original implementation
-from dierckx_numba_simple import fpsurf_njit, surfit_njit
+# Note: fpsurf_njit and surfit_njit implementations would go here
+# (complex functions not included in this optimized version)
 
 # ============================================================================
 # WARMUP AND OPTIMIZATION
