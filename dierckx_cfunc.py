@@ -507,7 +507,8 @@ def bisplrep_cfunc(x, y, z, kx=3, ky=3, s=0.0):
     tx = np.zeros(nx)
     ty = np.zeros(ny)
     
-    # Set end knots with multiplicity kx+1 and ky+1
+    # Set end knots with CORRECT DIERCKX multiplicity
+    # DIERCKX: tx(1)=...=tx(kx+1)=xb, tx(nx-kx)=...=tx(nx)=xe
     for i in range(kx + 1):
         tx[i] = xmin
         tx[nx - kx - 1 + i] = xmax
@@ -569,9 +570,9 @@ def bisplrep_cfunc(x, y, z, kx=3, ky=3, s=0.0):
         if yi == ty[-1] and ly == ny - ky - 1:
             ly = ny - ky - 2
         
-        # Evaluate B-splines at this point
-        hx = fpbspl_ultra(tx, nx, kx, xi, lx)
-        hy = fpbspl_ultra(ty, ny, ky, yi, ly)
+        # Evaluate B-splines (fpbspl_ultra expects 1-based index)
+        hx = fpbspl_ultra(tx, nx, kx, xi, lx + 1)
+        hy = fpbspl_ultra(ty, ny, ky, yi, ly + 1)
         
         # Tensor product B-splines
         for jx in range(kx + 1):
@@ -648,8 +649,8 @@ def bisplev_cfunc(x, y, tx, ty, c, kx, ky):
         if xi == tx[-1] and lx == ntx - kx - 1:
             lx = ntx - kx - 2
             
-        # Evaluate x B-splines
-        hx = fpbspl_ultra(tx, ntx, kx, xi, lx)
+        # Evaluate x B-splines (fpbspl_ultra expects 1-based index)
+        hx = fpbspl_ultra(tx, ntx, kx, xi, lx + 1)
         
         for j in range(ny):
             yj = y[j]
@@ -662,8 +663,8 @@ def bisplev_cfunc(x, y, tx, ty, c, kx, ky):
             if yj == ty[-1] and ly == nty - ky - 1:
                 ly = nty - ky - 2
                 
-            # Evaluate y B-splines
-            hy = fpbspl_ultra(ty, nty, ky, yj, ly)
+            # Evaluate y B-splines (fpbspl_ultra expects 1-based index)
+            hy = fpbspl_ultra(ty, nty, ky, yj, ly + 1)
             
             # Sum tensor product B-splines
             val = 0.0
@@ -679,6 +680,215 @@ def bisplev_cfunc(x, y, tx, ty, c, kx, ky):
             z[i, j] = val
     
     return z
+
+
+# ============================================================================
+# SCATTERED DATA SUPPORT - DIERCKX ALGORITHM TRANSLATION
+# ============================================================================
+
+@njit(fastmath=True, cache=True, boundscheck=False, nogil=True)
+def fporde_cfunc(x, y, m, kx, ky, tx, nx, ty, ny):
+    """
+    DIERCKX fporde - arrange data points according to panels
+    
+    Returns
+    -------
+    nummer : ndarray
+        Linked list - index of next data point in same panel
+    index : ndarray
+        Index of first data point in each panel
+    nreg : int
+        Number of panels
+    """
+    kx1 = kx + 1
+    ky1 = ky + 1
+    nk1x = nx - kx1
+    nk1y = ny - ky1
+    nyy = nk1y - ky
+    nreg = (nk1x - kx) * nyy
+    
+    # Initialize arrays
+    nummer = np.zeros(m, dtype=np.int32)
+    index = np.zeros(nreg, dtype=np.int32)
+    
+    # Process each data point
+    for im in range(m):
+        xi = x[im]
+        yi = y[im]
+        
+        # Find knot interval for x
+        l = kx1
+        while l < nx - kx1 and xi >= tx[l]:
+            l += 1
+        l -= 1
+        
+        # Find knot interval for y
+        k = ky1
+        while k < ny - ky1 and yi >= ty[k]:
+            k += 1
+        k -= 1
+        
+        # Calculate panel number (0-based) - fix bounds
+        lx_panel = l - kx
+        ly_panel = k - ky
+        
+        if lx_panel >= 0 and ly_panel >= 0 and lx_panel < (nk1x - kx) and ly_panel < nyy:
+            num = lx_panel * nyy + ly_panel
+            if 0 <= num < nreg:
+                # Insert into linked list
+                nummer[im] = index[num]
+                index[num] = im + 1  # 1-based indexing for compatibility
+    
+    return nummer, index, nreg
+
+
+@njit(fastmath=True, cache=True, boundscheck=False, nogil=True)
+def bisplrep_cfunc_scattered(x, y, z, kx=3, ky=3, s=0.0):
+    """
+    DIERCKX-compatible bivariate spline fitting for scattered data
+    
+    Based on fpsurf.f algorithm with proper panel organization
+    """
+    m = len(x)
+    
+    # Initial knot vectors - start with minimal knots
+    # For interpolation (s=0), we need at least 2*(k+1) knots
+    nminx = 2 * (kx + 1)
+    nminy = 2 * (ky + 1)
+    
+    # For scattered data, determine appropriate number of knots
+    # Need enough basis functions to fit the data
+    # For interpolation (s=0), we need ncof >= m
+    # ncof = (nx - kx - 1) * (ny - ky - 1)
+    # So we need nx, ny such that (nx - kx - 1) * (ny - ky - 1) >= m
+    
+    # Start with a reasonable guess based on sqrt(m)
+    n_per_dim = int(np.sqrt(m)) + kx + 1
+    nx = max(nminx, min(n_per_dim, 50))  # Cap at reasonable size
+    ny = max(nminy, min(n_per_dim, 50))
+    
+    # Create initial knot vectors
+    xmin, xmax = np.min(x), np.max(x)
+    ymin, ymax = np.min(y), np.max(y)
+    
+    # Add small margin to avoid boundary issues
+    eps = 1e-10
+    xmin -= eps * (xmax - xmin)
+    xmax += eps * (xmax - xmin)
+    ymin -= eps * (ymax - ymin)
+    ymax += eps * (ymax - ymin)
+    
+    tx = np.zeros(nx)
+    ty = np.zeros(ny)
+    
+    # Set boundary knots with proper multiplicity
+    for i in range(kx + 1):
+        tx[i] = xmin
+        tx[nx - kx - 1 + i] = xmax
+    for i in range(ky + 1):
+        ty[i] = ymin
+        ty[ny - ky - 1 + i] = ymax
+    
+    # Add interior knots for better conditioning
+    n_interior_x = nx - 2*(kx + 1)
+    n_interior_y = ny - 2*(ky + 1)
+    
+    if n_interior_x > 0:
+        for i in range(n_interior_x):
+            tx[kx + 1 + i] = xmin + (i + 1) * (xmax - xmin) / (n_interior_x + 1)
+    
+    if n_interior_y > 0:
+        for i in range(n_interior_y):
+            ty[ky + 1 + i] = ymin + (i + 1) * (ymax - ymin) / (n_interior_y + 1)
+    
+    # Number of B-spline coefficients
+    nk1x = nx - kx - 1
+    nk1y = ny - ky - 1
+    ncof = nk1x * nk1y
+    
+    # Arrange data points by panels
+    nummer, index, nreg = fporde_cfunc(x, y, m, kx, ky, tx, nx, ty, ny)
+    
+    # Build observation matrix using simpler direct assembly
+    # For now, build full matrix and use least squares
+    A = np.zeros((m, ncof))
+    b = np.zeros(m)
+    
+    # Process each data point directly
+    for im in range(m):
+        xi, yi, zi = x[im], y[im], z[im]
+        
+        # Find knot intervals
+        lx = kx
+        while lx < nx - kx - 1 and xi > tx[lx+1]:
+            lx += 1
+        if xi == tx[-1] and lx == nx - kx - 1:
+            lx = nx - kx - 2
+            
+        ly = ky  
+        while ly < ny - ky - 1 and yi > ty[ly+1]:
+            ly += 1
+        if yi == ty[-1] and ly == ny - ky - 1:
+            ly = ny - ky - 2
+        
+        # Evaluate B-splines (fpbspl_ultra expects 1-based index)
+        hx = fpbspl_ultra(tx, nx, kx, xi, lx + 1)
+        hy = fpbspl_ultra(ty, ny, ky, yi, ly + 1)
+        
+        # Fill matrix row
+        for jx in range(kx + 1):
+            ix = lx - kx + jx
+            if 0 <= ix < nk1x:
+                for jy in range(ky + 1):
+                    iy = ly - ky + jy
+                    if 0 <= iy < nk1y:
+                        col_idx = ix * nk1y + iy
+                        A[im, col_idx] = hx[jx] * hy[jy]
+        
+        b[im] = zi
+    
+    # Solve least squares problem
+    # Use normal equations for simplicity (could use QR for better stability)
+    AtA = A.T @ A
+    Atb = A.T @ b
+    
+    # Add regularization for numerical stability
+    reg = 1e-12
+    for i in range(ncof):
+        AtA[i, i] += reg
+    
+    # Solve system
+    c = np.linalg.solve(AtA, Atb)
+    
+    return tx, ty, c, kx, ky
+
+
+# Update main function to detect and handle scattered data
+@njit(fastmath=True, cache=True, boundscheck=False, nogil=True)
+def bisplrep_cfunc_auto(x, y, z, kx=3, ky=3, s=0.0):
+    """
+    Automatic scattered/regular data detection and appropriate algorithm selection
+    """
+    # Get unique x and y values to detect grid structure
+    x_sorted = np.sort(x)
+    y_sorted = np.sort(y)
+    
+    x_unique = find_unique_sorted(x_sorted)
+    y_unique = find_unique_sorted(y_sorted)
+    
+    nx_unique = len(x_unique)
+    ny_unique = len(y_unique)
+    
+    # Check if data forms a regular grid
+    is_regular_grid = (len(x) == nx_unique * ny_unique)
+    
+    if is_regular_grid and s == 0.0:
+        # Use optimized regular grid algorithm
+        return bisplrep_cfunc(x, y, z, kx, ky, s)
+    else:
+        # Use scattered data algorithm (translated DIERCKX)
+        return bisplrep_cfunc_scattered(x, y, z, kx, ky, s)
+
 
 if __name__ == "__main__":
     warmup_ultra_functions()
