@@ -7,8 +7,9 @@ Measures speedup for all core functions with scaling analysis
 import numpy as np
 import time
 import matplotlib.pyplot as plt
-from dierckx_numba_simple import (
-    fpback_njit, fpgivs_njit, fprota_njit, fprati_njit, fpbspl_njit
+from dierckx_numba_optimized import (
+    fpback_njit, fpgivs_njit, fprota_njit, fprati_njit, fpbspl_njit,
+    warmup_optimized_functions
 )
 
 # Import corrected DIERCKX f2py wrapper
