@@ -6,17 +6,19 @@ Compare against DIERCKX f2py with floating point accuracy
 
 import numpy as np
 import sys
+sys.path.insert(0, '..')
 
 # Import ultra-optimized cfunc implementations
-from dierckx_numba_ultra import (
-    fpback_ultra, fpgivs_ultra, fprota_ultra, fprati_ultra, fpbspl_ultra,
-    warmup_ultra_functions
+from dierckx_cfunc import (
+    fpback_ultra as fpback_cfunc, fpgivs_ultra as fpgivs_cfunc, 
+    fprota_ultra as fprota_cfunc, fprati_ultra as fprati_cfunc, 
+    fpbspl_ultra as fpbspl_cfunc, warmup_ultra_functions as warmup_functions
 )
 
 # Import DIERCKX f2py reference
 import dierckx_f2py
 
-def validate_fpback_ultra():
+def validate_fpback_cfunc():
     """Comprehensive validation of ultra-optimized fpback"""
     print("=" * 80)
     print("                    1. FPBACK ULTRA - Backward Substitution")
@@ -53,7 +55,7 @@ def validate_fpback_ultra():
             
             # Ultra-optimized cfunc implementation
             c_ultra = np.zeros(n, dtype=np.float64)
-            fpback_ultra(a, z, n, k, c_ultra, nest)
+            fpback_cfunc(a, z, n, k, c_ultra, nest)
             
             # Compare results
             error = np.max(np.abs(c_ultra.astype(np.float32) - c_ref))
@@ -67,7 +69,7 @@ def validate_fpback_ultra():
     print(f"\n  Maximum error across all tests: {max_error:.2e}")
     return max_error
 
-def validate_fpgivs_ultra():
+def validate_fpgivs_cfunc():
     """Comprehensive validation of ultra-optimized fpgivs"""
     print("\n" + "=" * 80)
     print("                      2. FPGIVS ULTRA - Givens Rotations")
@@ -100,7 +102,7 @@ def validate_fpgivs_ultra():
         piv_out, dd_ref, cos_ref, sin_ref = ref_result
         
         # Ultra-optimized cfunc implementation
-        dd_ultra, cos_ultra, sin_ultra = fpgivs_ultra(float(piv), float(ww))
+        dd_ultra, cos_ultra, sin_ultra = fpgivs_cfunc(float(piv), float(ww))
         
         # Compare results
         error_dd = abs(dd_ultra - dd_ref)
@@ -117,7 +119,7 @@ def validate_fpgivs_ultra():
     print(f"\n  Maximum error across all tests: {max_error:.2e}")
     return max_error
 
-def validate_fprota_ultra():
+def validate_fprota_cfunc():
     """Comprehensive validation of ultra-optimized fprota"""
     print("\n" + "=" * 80)
     print("                       3. FPROTA ULTRA - Apply Rotation")
@@ -147,7 +149,7 @@ def validate_fprota_ultra():
         a_ref, b_ref = ref_result
         
         # Ultra-optimized cfunc implementation
-        a_ultra, b_ultra = fprota_ultra(cos, sin, a, b)
+        a_ultra, b_ultra = fprota_cfunc(cos, sin, a, b)
         
         # Compare results
         error_a = abs(a_ultra - a_ref)
@@ -163,7 +165,7 @@ def validate_fprota_ultra():
     print(f"\n  Maximum error across all tests: {max_error:.2e}")
     return max_error
 
-def validate_fprati_ultra():
+def validate_fprati_cfunc():
     """Comprehensive validation of ultra-optimized fprati"""
     print("\n" + "=" * 80)
     print("                     4. FPRATI ULTRA - Rational Interpolation")
@@ -200,7 +202,7 @@ def validate_fprati_ultra():
         p_ref = dierckx_f2py.fprati(p1, f1, p2, f2, p3, f3)
         
         # Ultra-optimized cfunc implementation
-        p_ultra, p1_ultra, f1_ultra, p2_ultra, f2_ultra = fprati_ultra(p1, f1, p2, f2, p3, f3)
+        p_ultra, p1_ultra, f1_ultra, p2_ultra, f2_ultra = fprati_cfunc(p1, f1, p2, f2, p3, f3)
         
         # Compare main result only
         error = abs(p_ultra - p_ref)
@@ -214,7 +216,7 @@ def validate_fprati_ultra():
     print(f"\n  Maximum error across all tests: {max_error:.2e}")
     return max_error
 
-def validate_fpbspl_ultra():
+def validate_fpbspl_cfunc():
     """Comprehensive validation of ultra-optimized fpbspl"""
     print("\n" + "=" * 80)
     print("                      5. FPBSPL ULTRA - B-spline Evaluation")
@@ -255,7 +257,7 @@ def validate_fpbspl_ultra():
                 h_ref = np.array(ref_result, dtype=np.float64)
                 
                 # Ultra-optimized cfunc implementation
-                h_ultra = fpbspl_ultra(t, n, k, x, l)
+                h_ultra = fpbspl_cfunc(t, n, k, x, l)
                 
                 # Compare results (only first k+1 elements are meaningful)
                 h_ref_trimmed = h_ref[:k+1] if len(h_ref) > k+1 else h_ref
@@ -288,16 +290,16 @@ def main():
     print("MAXIMUM PERFORMANCE WITH FLOATING POINT ACCURACY")
     
     # Warmup functions first
-    warmup_ultra_functions()
+    warmup_functions()
     
     # Run all validation tests
     errors = []
     
-    errors.append(validate_fpback_ultra())
-    errors.append(validate_fpgivs_ultra())
-    errors.append(validate_fprota_ultra())
-    errors.append(validate_fprati_ultra())
-    errors.append(validate_fpbspl_ultra())
+    errors.append(validate_fpback_cfunc())
+    errors.append(validate_fpgivs_cfunc())
+    errors.append(validate_fprota_cfunc())
+    errors.append(validate_fprati_cfunc())
+    errors.append(validate_fpbspl_cfunc())
     
     # Summary
     print("\n" + "=" * 80)

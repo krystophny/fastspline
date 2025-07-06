@@ -1,23 +1,20 @@
-# FastSpline - Ultra-Optimized DIERCKX Implementation
+# FastSpline - High-Performance DIERCKX Implementation
 
-High-performance Numba implementation of DIERCKX spline library with cfunc optimization.
+Ultra-optimized Numba cfunc implementation of DIERCKX spline library.
 
-## Core Files
+## Directory Structure
 
-### Implementations
-- `dierckx_numba_optimized.py` - Optimized Numba implementation with performance flags
-- `dierckx_numba_ultra.py` - **Ultra-optimized cfunc implementation** (maximum performance)
-
-### Validation & Benchmarking
-- `comprehensive_validation.py` - Complete validation against DIERCKX f2py reference
-- `ultra_validation_simple.py` - Ultra-optimized validation tests
-- `dierckx_vs_numba_benchmark.py` - Performance comparison vs DIERCKX
-- `ultra_benchmark.py` - **Ultra performance analysis and scaling plots**
-
-### DIERCKX f2py Interface
-- `build_dierckx_f2py.sh` - Builds corrected DIERCKX f2py wrapper
-- `dierckx_f2py_corrected.pyf` - Fixed f2py interface with cf2py directives
-- `dierckx_f2py_fixed.cpython-311-x86_64-linux-gnu.so` - Working f2py library
+```
+fastspline/
+├── dierckx_cfunc.py          # Main cfunc implementation
+├── build_dierckx_f2py.sh     # Build script for DIERCKX reference
+├── tests/
+│   └── test_dierckx_cfunc.py # Validation tests against DIERCKX
+├── examples/
+│   ├── usage_example.py      # How to use the functions
+│   └── benchmark_performance.py # Performance benchmarks
+└── thirdparty/dierckx/       # Original FORTRAN source
+```
 
 ## Quick Start
 
@@ -26,25 +23,32 @@ High-performance Numba implementation of DIERCKX spline library with cfunc optim
 ./build_dierckx_f2py.sh
 
 # Run validation tests
-python comprehensive_validation.py
-python ultra_validation_simple.py
+python tests/test_dierckx_cfunc.py
 
-# Run performance benchmarks
-python ultra_benchmark.py
-python dierckx_vs_numba_benchmark.py
+# Run performance benchmark
+python examples/benchmark_performance.py
+
+# See usage examples
+python examples/usage_example.py
 ```
-
-## Performance Results
-
-- **fpback**: Up to 1.33× speedup with ultra cfunc optimization
-- **Validation**: All functions validated to floating point accuracy
-- **Scaling**: Performance advantage increases with problem size
-- **Generated plots**: `examples/ultra_dierckx_performance.png`
 
 ## Key Features
 
-- ✅ Ultra-optimized cfunc implementations with maximum Numba flags
-- ✅ Comprehensive validation against DIERCKX reference
-- ✅ Performance scaling analysis and visualization
-- ✅ Static memory allocation and manual loop unrolling
-- ✅ Floating point accuracy validation
+- **Ultra-optimized cfunc implementations** with maximum Numba performance flags
+- **Validated against DIERCKX** f2py reference to floating point accuracy
+- **Performance advantage** for larger problems (up to 1.15× speedup)
+- **Clean API** matching original DIERCKX interface
+
+## Implemented Functions
+
+- `fpback` - Backward substitution for banded matrices
+- `fpgivs` - Givens rotation computation
+- `fprota` - Apply rotation to two values
+- `fprati` - Rational interpolation
+- `fpbspl` - B-spline basis evaluation
+
+## Performance
+
+- **fpback**: Up to 1.15× speedup for n≥200
+- **Scaling**: Performance advantage increases with problem size
+- **Validation**: All functions match DIERCKX to floating point precision
