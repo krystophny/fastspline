@@ -514,5 +514,190 @@ def warmup_ultra_functions():
     
     print("✓ All ultra-optimized cfuncs warmed up!")
 
+
+# ============================================================================
+# HIGH-LEVEL BIVARIATE SPLINE INTERFACES USING CFUNC BUILDING BLOCKS
+# ============================================================================
+
+@njit(fastmath=True, cache=True, boundscheck=False, nogil=True)
+def bisplrep_cfunc(x, y, z, kx=3, ky=3, s=0.0):
+    """
+    Simplified bivariate spline representation using cfunc building blocks.
+    
+    Parameters
+    ----------
+    x, y, z : ndarray
+        Data points (x[i], y[i], z[i])
+    kx, ky : int
+        Degrees of the spline (1 <= kx, ky <= 5)
+    s : float
+        Smoothing factor (simplified, s=0 for interpolation)
+    
+    Returns
+    -------
+    tx, ty : ndarray
+        Knot vectors
+    c : ndarray
+        B-spline coefficients
+    kx, ky : int
+        Spline degrees (returned for compatibility)
+    """
+    m = len(x)
+    
+    # For interpolation (s=0), we need nx = m + kx + 1 knots
+    nx = m + kx + 1 if s == 0.0 else max(2*kx + 2, int(np.sqrt(m)) + kx + 1)
+    ny = m + ky + 1 if s == 0.0 else max(2*ky + 2, int(np.sqrt(m)) + ky + 1)
+    
+    # Create knot vectors (simplified uniform spacing)
+    xmin, xmax = np.min(x), np.max(x)
+    ymin, ymax = np.min(y), np.max(y)
+    
+    # Create full knot vectors with multiplicity at ends
+    tx = np.zeros(nx)
+    ty = np.zeros(ny)
+    
+    # Set end knots with multiplicity
+    for i in range(kx):
+        tx[i] = xmin
+        tx[nx - kx + i] = xmax
+    for i in range(ky):
+        ty[i] = ymin
+        ty[ny - ky + i] = ymax
+        
+    # Set interior knots
+    n_interior_x = nx - 2*kx
+    n_interior_y = ny - 2*ky
+    
+    if n_interior_x > 0:
+        dx = (xmax - xmin) / (n_interior_x + 1)
+        for i in range(n_interior_x):
+            tx[kx + i] = xmin + (i + 1) * dx
+            
+    if n_interior_y > 0:
+        dy = (ymax - ymin) / (n_interior_y + 1)
+        for i in range(n_interior_y):
+            ty[ky + i] = ymin + (i + 1) * dy
+    
+    # Number of B-spline coefficients
+    ncx = nx - kx - 1
+    ncy = ny - ky - 1
+    
+    # Build collocation matrix (simplified)
+    # For each data point, evaluate all B-splines
+    A = np.zeros((m, ncx * ncy))
+    
+    for i in range(m):
+        xi, yi = x[i], y[i]
+        
+        # Find knot intervals
+        lx = kx
+        while lx < nx - kx - 1 and xi >= tx[lx+1]:
+            lx += 1
+            
+        ly = ky  
+        while ly < ny - ky - 1 and yi >= ty[ly+1]:
+            ly += 1
+        
+        # Evaluate B-splines at this point
+        hx = fpbspl_ultra(tx, nx, kx, xi, lx)
+        hy = fpbspl_ultra(ty, ny, ky, yi, ly)
+        
+        # Tensor product B-splines
+        for jx in range(kx + 1):
+            for jy in range(ky + 1):
+                col_idx = (lx - kx + jx) * ncy + (ly - ky + jy)
+                if 0 <= col_idx < ncx * ncy:
+                    A[i, col_idx] = hx[jx] * hy[jy]
+    
+    # For small problems, use least squares directly
+    # For interpolation (s=0), we need exact fit at data points
+    if m == ncx * ncy:
+        # Square system - direct solve
+        c = np.linalg.solve(A, z)
+    else:
+        # Overdetermined - use least squares
+        # Solve min ||Ac - z||^2 using QR decomposition would be better,
+        # but for simplicity use normal equations
+        AtA = A.T @ A
+        Atz = A.T @ z
+        
+        # Add small regularization for numerical stability
+        reg = 1e-10
+        for i in range(ncx * ncy):
+            AtA[i, i] += reg
+        
+        c = np.linalg.solve(AtA, Atz)
+    
+    return tx, ty, c, kx, ky
+
+
+@njit(fastmath=True, cache=True, boundscheck=False, nogil=True)
+def bisplev_cfunc(x, y, tx, ty, c, kx, ky):
+    """
+    Evaluate bivariate B-spline using cfunc building blocks.
+    
+    Parameters
+    ----------
+    x, y : ndarray
+        Evaluation points (must be arrays, not scalars)
+    tx, ty : ndarray
+        Knot vectors
+    c : ndarray
+        B-spline coefficients
+    kx, ky : int
+        Degrees of the spline
+        
+    Returns
+    -------
+    z : ndarray
+        Evaluated spline values
+    """
+    nx = len(x)
+    ny = len(y)
+    ntx = len(tx)
+    nty = len(ty)
+    ncx = ntx - kx - 1
+    ncy = nty - ky - 1
+    
+    # Output array
+    z = np.zeros((nx, ny))
+    
+    for i in range(nx):
+        xi = x[i]
+        
+        # Find x interval
+        lx = kx
+        while lx < ntx - kx - 1 and xi >= tx[lx+1]:
+            lx += 1
+            
+        # Evaluate x B-splines
+        hx = fpbspl_ultra(tx, ntx, kx, xi, lx)
+        
+        for j in range(ny):
+            yj = y[j]
+            
+            # Find y interval  
+            ly = ky
+            while ly < nty - ky - 1 and yj >= ty[ly+1]:
+                ly += 1
+                
+            # Evaluate y B-splines
+            hy = fpbspl_ultra(ty, nty, ky, yj, ly)
+            
+            # Sum tensor product B-splines
+            val = 0.0
+            for jx in range(kx + 1):
+                cx_idx = lx - kx + jx
+                if 0 <= cx_idx < ncx:
+                    for jy in range(ky + 1):
+                        cy_idx = ly - ky + jy
+                        if 0 <= cy_idx < ncy:
+                            c_idx = cx_idx * ncy + cy_idx
+                            val += hx[jx] * hy[jy] * c[c_idx]
+            
+            z[i, j] = val
+    
+    return z
+
 if __name__ == "__main__":
     warmup_ultra_functions()
