@@ -4,7 +4,7 @@ Maximum performance: SIMD, native arch, static memory, loop unrolling
 """
 
 import numpy as np
-from numba import cfunc, types, njit, literally
+from numba import cfunc, types, njit, literally, prange
 import numba as nb
 from numba.core.typing import signature
 
@@ -181,7 +181,7 @@ fpbspl_sig = types.void(
        nopython=True,
        cache=True)
 def fpbspl_cfunc(t, n, k, x, l, h):
-    """Ultra-optimized B-spline basis evaluation with cfunc"""
+    """Ultra-optimized B-spline basis evaluation with cfunc - DIERCKX algorithm"""
     EPS = 1e-15
     
     # Initialize static array
@@ -189,87 +189,29 @@ def fpbspl_cfunc(t, n, k, x, l, h):
         h[i] = 0.0
     h[0] = 1.0
     
-    # Optimized de Boor-Cox recurrence with loop unrolling
+    # Temporary storage - static allocation
+    hh = np.zeros(5, dtype=np.float64)  # Max degree 5
+    
+    # DIERCKX algorithm - stable recurrence relation
     for j in range(1, k + 1):
-        saved = 0.0
+        # Save current h values
+        for i in range(j):
+            hh[i] = h[i]
         
-        # Manual loop unrolling for common degrees
-        if j == 1:
-            # Linear case
-            left = l - j - 1
-            right = l - 1
-            if left >= 0 and right < n and left < right:
-                denom = t[right] - t[left]
-                if abs(denom) > EPS:
-                    alpha = (x - t[left]) / denom
-                else:
-                    alpha = 0.0
+        # Reset h[0]
+        h[0] = 0.0
+        
+        # Recurrence relation
+        for i in range(j):
+            li = l + i + 1
+            lj = li - j
+            
+            if lj >= 0 and li < n and abs(t[li] - t[lj]) > EPS:
+                f = hh[i] / (t[li] - t[lj])
+                h[i] = h[i] + f * (t[li] - x)
+                h[i + 1] = f * (x - t[lj])
             else:
-                alpha = 0.0
-            
-            temp = h[0]
-            h[0] = (1.0 - alpha) * temp
-            h[1] = alpha * temp
-            
-        elif j == 2:
-            # Quadratic case - unrolled
-            for r in range(2):
-                left = l + r - j - 1
-                right = l + r - 1
-                
-                if left >= 0 and right < n and left < right:
-                    denom = t[right] - t[left]
-                    if abs(denom) > EPS:
-                        alpha = (x - t[left]) / denom
-                    else:
-                        alpha = 0.0
-                else:
-                    alpha = 0.0
-                
-                temp = h[r]
-                h[r] = saved + (1.0 - alpha) * temp
-                saved = alpha * temp
-            h[j] = saved
-            
-        elif j == 3:
-            # Cubic case - unrolled  
-            for r in range(3):
-                left = l + r - j - 1
-                right = l + r - 1
-                
-                if left >= 0 and right < n and left < right:
-                    denom = t[right] - t[left]
-                    if abs(denom) > EPS:
-                        alpha = (x - t[left]) / denom
-                    else:
-                        alpha = 0.0
-                else:
-                    alpha = 0.0
-                
-                temp = h[r]
-                h[r] = saved + (1.0 - alpha) * temp
-                saved = alpha * temp
-            h[j] = saved
-            
-        else:
-            # General case for higher degrees
-            for r in range(j):
-                left = l + r - j - 1
-                right = l + r - 1
-                
-                if left >= 0 and right < n and left < right:
-                    denom = t[right] - t[left]
-                    if abs(denom) > EPS:
-                        alpha = (x - t[left]) / denom
-                    else:
-                        alpha = 0.0
-                else:
-                    alpha = 0.0
-                
-                temp = h[r]
-                h[r] = saved + (1.0 - alpha) * temp
-                saved = alpha * temp
-            h[j] = saved
+                h[i + 1] = 0.0
 
 
 # ============================================================================
@@ -392,94 +334,36 @@ def fprati_ultra(p1, f1, p2, f2, p3, f3):
 
 @njit(fastmath=True, cache=True, boundscheck=False, nogil=True)
 def fpbspl_ultra(t, n, k, x, l):
-    """Ultra-optimized fpbspl with maximum performance"""
+    """Ultra-optimized fpbspl with maximum performance - DIERCKX algorithm"""
     EPS = 1e-15
     
     # Use static stack array for maximum speed
     h = np.zeros(k + 1, dtype=np.float64)
     h[0] = 1.0
     
-    # Optimized de Boor-Cox recurrence with loop unrolling
+    # Temporary storage
+    hh = np.zeros(k, dtype=np.float64)
+    
+    # DIERCKX algorithm - stable recurrence relation
     for j in range(1, k + 1):
-        saved = 0.0
+        # Save current h values
+        for i in range(j):
+            hh[i] = h[i]
         
-        # Manual loop unrolling for common degrees
-        if j == 1:
-            # Linear case
-            left = l - j - 1
-            right = l - 1
-            if left >= 0 and right < n and left < right:
-                denom = t[right] - t[left]
-                if abs(denom) > EPS:
-                    alpha = (x - t[left]) / denom
-                else:
-                    alpha = 0.0
+        # Reset h[0]
+        h[0] = 0.0
+        
+        # Recurrence relation
+        for i in range(j):
+            li = l + i + 1
+            lj = li - j
+            
+            if lj >= 0 and li < n and abs(t[li] - t[lj]) > EPS:
+                f = hh[i] / (t[li] - t[lj])
+                h[i] = h[i] + f * (t[li] - x)
+                h[i + 1] = f * (x - t[lj])
             else:
-                alpha = 0.0
-            
-            temp = h[0]
-            h[0] = (1.0 - alpha) * temp
-            h[1] = alpha * temp
-            
-        elif j == 2:
-            # Quadratic case - unrolled
-            for r in range(2):
-                left = l + r - j - 1
-                right = l + r - 1
-                
-                if left >= 0 and right < n and left < right:
-                    denom = t[right] - t[left]
-                    if abs(denom) > EPS:
-                        alpha = (x - t[left]) / denom
-                    else:
-                        alpha = 0.0
-                else:
-                    alpha = 0.0
-                
-                temp = h[r]
-                h[r] = saved + (1.0 - alpha) * temp
-                saved = alpha * temp
-            h[j] = saved
-            
-        elif j == 3:
-            # Cubic case - unrolled  
-            for r in range(3):
-                left = l + r - j - 1
-                right = l + r - 1
-                
-                if left >= 0 and right < n and left < right:
-                    denom = t[right] - t[left]
-                    if abs(denom) > EPS:
-                        alpha = (x - t[left]) / denom
-                    else:
-                        alpha = 0.0
-                else:
-                    alpha = 0.0
-                
-                temp = h[r]
-                h[r] = saved + (1.0 - alpha) * temp
-                saved = alpha * temp
-            h[j] = saved
-            
-        else:
-            # General case for higher degrees
-            for r in range(j):
-                left = l + r - j - 1
-                right = l + r - 1
-                
-                if left >= 0 and right < n and left < right:
-                    denom = t[right] - t[left]
-                    if abs(denom) > EPS:
-                        alpha = (x - t[left]) / denom
-                    else:
-                        alpha = 0.0
-                else:
-                    alpha = 0.0
-                
-                temp = h[r]
-                h[r] = saved + (1.0 - alpha) * temp
-                saved = alpha * temp
-            h[j] = saved
+                h[i + 1] = 0.0
     
     return h
 
@@ -520,6 +404,24 @@ def warmup_ultra_functions():
 # ============================================================================
 
 @njit(fastmath=True, cache=True, boundscheck=False, nogil=True)
+def find_unique_sorted(arr, tol=1e-10):
+    """Find unique values in a sorted array"""
+    n = len(arr)
+    if n == 0:
+        return np.empty(0, dtype=arr.dtype)
+    
+    unique = np.empty(n, dtype=arr.dtype)
+    unique[0] = arr[0]
+    count = 1
+    
+    for i in range(1, n):
+        if arr[i] - unique[count-1] > tol:
+            unique[count] = arr[i]
+            count += 1
+    
+    return unique[:count]
+
+@njit(fastmath=True, cache=True, boundscheck=False, nogil=True, parallel=True)
 def bisplrep_cfunc(x, y, z, kx=3, ky=3, s=0.0):
     """
     Simplified bivariate spline representation using cfunc building blocks.
@@ -544,59 +446,114 @@ def bisplrep_cfunc(x, y, z, kx=3, ky=3, s=0.0):
     """
     m = len(x)
     
-    # For interpolation (s=0), we need nx = m + kx + 1 knots
-    nx = m + kx + 1 if s == 0.0 else max(2*kx + 2, int(np.sqrt(m)) + kx + 1)
-    ny = m + ky + 1 if s == 0.0 else max(2*ky + 2, int(np.sqrt(m)) + ky + 1)
+    # Get unique x and y values to determine actual grid structure
+    x_sorted = np.sort(x)
+    y_sorted = np.sort(y)
     
-    # Create knot vectors (simplified uniform spacing)
-    xmin, xmax = np.min(x), np.max(x)
-    ymin, ymax = np.min(y), np.max(y)
+    x_unique = find_unique_sorted(x_sorted)
+    y_unique = find_unique_sorted(y_sorted)
+    
+    nx_unique = len(x_unique)
+    ny_unique = len(y_unique)
+    
+    # For interpolation (s=0), number of knots depends on unique values
+    # We need exactly as many basis functions as data points
+    # For a regular grid: m = nx_unique * ny_unique
+    # Number of basis functions = (n_knots - kx - 1) * (n_knots - ky - 1)
+    
+    if s == 0.0:
+        # For interpolation on regular grid
+        if m == nx_unique * ny_unique:
+            # Regular grid - we need nx_unique + kx + 1 knots
+            nx = nx_unique + kx + 1
+            ny = ny_unique + ky + 1
+        else:
+            # Scattered data - need fewer basis functions than data points
+            # Use approximation based on sqrt(m)
+            n_basis = int(np.sqrt(m))
+            nx = n_basis + kx + 1
+            ny = n_basis + ky + 1
+            
+            # Ensure minimum knots
+            nx = max(2*(kx+1), nx)
+            ny = max(2*(ky+1), ny)
+    else:
+        # For smoothing
+        n_basis = int(np.sqrt(m))
+        nx = n_basis + kx + 1
+        ny = n_basis + ky + 1
+        nx = max(2*(kx+1), nx)
+        ny = max(2*(ky+1), ny)
+    
+    # Create knot vectors
+    xmin, xmax = x_unique[0], x_unique[-1]
+    ymin, ymax = y_unique[0], y_unique[-1]
     
     # Create full knot vectors with multiplicity at ends
     tx = np.zeros(nx)
     ty = np.zeros(ny)
     
-    # Set end knots with multiplicity
-    for i in range(kx):
+    # Set end knots with multiplicity kx+1 and ky+1
+    for i in range(kx + 1):
         tx[i] = xmin
-        tx[nx - kx + i] = xmax
-    for i in range(ky):
+        tx[nx - kx - 1 + i] = xmax
+    for i in range(ky + 1):
         ty[i] = ymin
-        ty[ny - ky + i] = ymax
+        ty[ny - ky - 1 + i] = ymax
         
     # Set interior knots
-    n_interior_x = nx - 2*kx
-    n_interior_y = ny - 2*ky
+    n_interior_x = nx - 2*(kx + 1)
+    n_interior_y = ny - 2*(ky + 1)
     
     if n_interior_x > 0:
-        dx = (xmax - xmin) / (n_interior_x + 1)
-        for i in range(n_interior_x):
-            tx[kx + i] = xmin + (i + 1) * dx
+        # For regular grid interpolation, place knots at interior data points
+        if m == nx_unique * ny_unique and s == 0.0 and n_interior_x == nx_unique - 2:
+            # Place at interior unique values
+            for i in range(n_interior_x):
+                tx[kx + 1 + i] = x_unique[i + 1]
+        else:
+            # Uniform spacing
+            dx = (xmax - xmin) / (n_interior_x + 1)
+            for i in range(n_interior_x):
+                tx[kx + 1 + i] = xmin + (i + 1) * dx
             
     if n_interior_y > 0:
-        dy = (ymax - ymin) / (n_interior_y + 1)
-        for i in range(n_interior_y):
-            ty[ky + i] = ymin + (i + 1) * dy
+        # For regular grid interpolation, place knots at interior data points
+        if m == nx_unique * ny_unique and s == 0.0 and n_interior_y == ny_unique - 2:
+            # Place at interior unique values
+            for i in range(n_interior_y):
+                ty[ky + 1 + i] = y_unique[i + 1]
+        else:
+            # Uniform spacing
+            dy = (ymax - ymin) / (n_interior_y + 1)
+            for i in range(n_interior_y):
+                ty[ky + 1 + i] = ymin + (i + 1) * dy
     
     # Number of B-spline coefficients
     ncx = nx - kx - 1
     ncy = ny - ky - 1
     
-    # Build collocation matrix (simplified)
-    # For each data point, evaluate all B-splines
+    # Build collocation matrix
     A = np.zeros((m, ncx * ncy))
     
-    for i in range(m):
+    # Parallelize over data points
+    for i in prange(m):
         xi, yi = x[i], y[i]
         
         # Find knot intervals
         lx = kx
-        while lx < nx - kx - 1 and xi >= tx[lx+1]:
+        while lx < nx - kx - 1 and xi > tx[lx+1]:  # Use > not >= to handle boundary
             lx += 1
+        # Special case: if at right boundary, use last valid interval
+        if xi == tx[-1] and lx == nx - kx - 1:
+            lx = nx - kx - 2
             
         ly = ky  
-        while ly < ny - ky - 1 and yi >= ty[ly+1]:
+        while ly < ny - ky - 1 and yi > ty[ly+1]:  # Use > not >= to handle boundary
             ly += 1
+        # Special case: if at right boundary, use last valid interval
+        if yi == ty[-1] and ly == ny - ky - 1:
+            ly = ny - ky - 2
         
         # Evaluate B-splines at this point
         hx = fpbspl_ultra(tx, nx, kx, xi, lx)
@@ -604,10 +561,13 @@ def bisplrep_cfunc(x, y, z, kx=3, ky=3, s=0.0):
         
         # Tensor product B-splines
         for jx in range(kx + 1):
-            for jy in range(ky + 1):
-                col_idx = (lx - kx + jx) * ncy + (ly - ky + jy)
-                if 0 <= col_idx < ncx * ncy:
-                    A[i, col_idx] = hx[jx] * hy[jy]
+            ix = lx - kx + jx
+            if 0 <= ix < ncx:
+                for jy in range(ky + 1):
+                    iy = ly - ky + jy
+                    if 0 <= iy < ncy:
+                        col_idx = ix * ncy + iy
+                        A[i, col_idx] = hx[jx] * hy[jy]
     
     # For small problems, use least squares directly
     # For interpolation (s=0), we need exact fit at data points
@@ -631,7 +591,7 @@ def bisplrep_cfunc(x, y, z, kx=3, ky=3, s=0.0):
     return tx, ty, c, kx, ky
 
 
-@njit(fastmath=True, cache=True, boundscheck=False, nogil=True)
+@njit(fastmath=True, cache=True, boundscheck=False, nogil=True, parallel=True)
 def bisplev_cfunc(x, y, tx, ty, c, kx, ky):
     """
     Evaluate bivariate B-spline using cfunc building blocks.
@@ -662,13 +622,17 @@ def bisplev_cfunc(x, y, tx, ty, c, kx, ky):
     # Output array
     z = np.zeros((nx, ny))
     
-    for i in range(nx):
+    # Parallelize over x values
+    for i in prange(nx):
         xi = x[i]
         
         # Find x interval
         lx = kx
-        while lx < ntx - kx - 1 and xi >= tx[lx+1]:
+        while lx < ntx - kx - 1 and xi > tx[lx+1]:
             lx += 1
+        # Special case: if at right boundary, use last valid interval
+        if xi == tx[-1] and lx == ntx - kx - 1:
+            lx = ntx - kx - 2
             
         # Evaluate x B-splines
         hx = fpbspl_ultra(tx, ntx, kx, xi, lx)
@@ -678,8 +642,11 @@ def bisplev_cfunc(x, y, tx, ty, c, kx, ky):
             
             # Find y interval  
             ly = ky
-            while ly < nty - ky - 1 and yj >= ty[ly+1]:
+            while ly < nty - ky - 1 and yj > ty[ly+1]:
                 ly += 1
+            # Special case: if at right boundary, use last valid interval
+            if yj == ty[-1] and ly == nty - ky - 1:
+                ly = nty - ky - 2
                 
             # Evaluate y B-splines
             hy = fpbspl_ultra(ty, nty, ky, yj, ly)

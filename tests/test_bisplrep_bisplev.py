@@ -6,8 +6,10 @@ Validation of bisplrep_cfunc and bisplev_cfunc against SciPy
 import numpy as np
 from scipy.interpolate import bisplrep, bisplev
 import sys
-sys.path.insert(0, '..')
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import dierckx_cfunc
 from dierckx_cfunc import bisplrep_cfunc, bisplev_cfunc
 
 def generate_test_surface(nx=10, ny=10):
