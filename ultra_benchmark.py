@@ -21,7 +21,7 @@ from dierckx_numba_optimized import (
 )
 
 # Import DIERCKX f2py reference
-import dierckx_f2py_fixed as dierckx_f2py
+import dierckx_f2py
 
 def time_function(func, *args, iterations=1000, warmup=10):
     """Time a function with proper warmup"""

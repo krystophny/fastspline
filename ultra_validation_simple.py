@@ -14,7 +14,7 @@ from dierckx_numba_ultra import (
 )
 
 # Import DIERCKX f2py reference
-import dierckx_f2py_fixed as dierckx_f2py
+import dierckx_f2py
 
 def validate_fpback_ultra():
     """Comprehensive validation of ultra-optimized fpback"""

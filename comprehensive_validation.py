@@ -9,13 +9,12 @@ import sys
 import os
 
 # Use the corrected wrapper that already exists
-import dierckx_f2py_fixed as dierckx_f2py
+import dierckx_f2py
 
 # Import all Numba implementations
-from dierckx_numba_simple import (
+from dierckx_numba_optimized import (
     fpback_njit, fpbspl_njit, fpdisc_njit, fpgivs_njit,
-    fporde_njit, fprank_njit, fprati_njit, fprota_njit,
-    fpsurf_njit, surfit_njit
+    fporde_njit, fprank_njit, fprati_njit, fprota_njit
 )
 
 # Color codes for output
