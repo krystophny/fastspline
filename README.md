@@ -2,73 +2,89 @@
 
 High-performance bivariate spline interpolation implementations exploring various optimization strategies for the DIERCKX Fortran library.
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 ## Overview
 
-This repository contains multiple implementations of the DIERCKX `bispev` routine for bivariate spline evaluation:
+FastSpline is a Python package that provides multiple high-performance implementations of bivariate spline evaluation:
 
 1. **Fortran/C Wrapper** - Direct C wrapper around the original DIERCKX Fortran code
 2. **Pure Numba Implementation** - Complete rewrite in Python/Numba as cfuncs with `nopython=True`
 
 Both implementations provide bit-exact compatibility with scipy's `bisplev` function while exploring different performance optimization strategies.
 
-## Repository Structure
+## Installation
+
+### From Source
+```bash
+git clone https://github.com/krystophny/fastspline.git
+cd fastspline
+pip install -e .
+```
+
+### Development Installation
+```bash
+git clone https://github.com/krystophny/fastspline.git
+cd fastspline
+pip install -e ".[dev,numba]"
+```
+
+## Package Structure
 
 ```
 fastspline/
+├── fastspline/                  # Python package
+│   ├── ctypes_wrapper/          # Python ctypes interface
+│   └── numba_implementation/    # Pure Numba cfunc implementation
 ├── src/                         # Source code
 │   ├── fortran/                 # DIERCKX Fortran sources
 │   └── c/                       # C wrapper implementation
-├── include/                     # C header files
-├── lib/                         # Compiled libraries
-├── python/                      # Python implementations
-│   ├── ctypes_wrapper/          # Python ctypes interface
-│   └── numba_implementation/    # Pure Numba cfunc implementation
 ├── benchmarks/                  # Performance comparisons
-│   ├── scripts/                 # Benchmark scripts
-│   └── results/                 # Performance plots
 ├── tests/                       # Test suites
-└── examples/                    # Usage examples
+├── thirdparty/licenses/         # Third-party licenses
+└── docs/                        # Documentation
 ```
 
-## Building
+## Quick Start
 
-To build the C wrapper around the Fortran code:
-
-```bash
-make
-```
-
-This creates `lib/libbispev.so` which can be used via ctypes or called from C.
-
-## Usage
-
-### Python Ctypes Wrapper
-
+### Using the ctypes wrapper
 ```python
-from python.ctypes_wrapper import bispev
+import fastspline
 
-# Evaluate bivariate spline
-z = bispev(tx, ty, c, kx, ky, x, y)
+# Use the ctypes interface to DIERCKX Fortran routines
+z = fastspline.bispev_ctypes(tx, ty, c, kx, ky, x, y)
 ```
 
-### Numba cfunc
-
+### Using Numba cfuncs (requires numba)
 ```python
 import ctypes
-from python.numba_implementation import bispev_cfunc_address
+from fastspline.numba_implementation import bispev_cfunc_address
 
 # Create ctypes wrapper for the cfunc
-bispev = ctypes.CFUNCTYPE(...)(bispev_cfunc_address)
+bispev_numba = ctypes.CFUNCTYPE(...)(bispev_cfunc_address)
 ```
 
 ## Performance
 
 Benchmark results for 100x100 evaluation grid:
 - scipy.interpolate.bisplev: 0.083 ms (baseline)
-- Fortran wrapper (ctypes): 0.097 ms (+17% overhead)
-- Numba cfunc (ctypes): 0.108 ms (+30% overhead)
+- FastSpline Fortran wrapper: 0.097 ms (+17% overhead)
+- FastSpline Numba cfunc: 0.108 ms (+30% overhead)
 
 The overhead is primarily from the ctypes interface. When called directly from compiled code, both implementations have negligible overhead.
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+**Important**: This project incorporates code from third-party sources:
+
+- **DIERCKX FITPACK routines** (in `src/fortran/`) - Used under the same license terms as SciPy (BSD 3-Clause)
+- **SciPy components** - Licensed under BSD 3-Clause License
+
+See `thirdparty/licenses/` for complete license information for third-party components.
+
+**All code not directly copied or ported from third-party libraries is licensed under the MIT License.**
 
 ## Implementation Details
 
@@ -79,7 +95,7 @@ The overhead is primarily from the ctypes interface. When called directly from c
 
 ### Numba Implementation
 - Complete rewrite of fpbspl, fpbisp, and bispev in pure Python/Numba
-- All functions are cfuncs with nopython=True and fastmath=True
+- All functions are cfuncs with `nopython=True` and `fastmath=True`
 - Algorithms are inlined to avoid function pointer limitations
 - Careful translation of Fortran 1-based to Python 0-based indexing
 
@@ -87,4 +103,10 @@ The overhead is primarily from the ctypes interface. When called directly from c
 
 Both implementations are validated to provide bit-exact results (rtol=1e-14) compared to scipy.interpolate.bisplev.
 
-See the `tests/` directory for comprehensive validation tests.
+```bash
+pytest tests/
+```
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.

@@ -1,0 +1,26 @@
+DIERCKX FITPACK Library License Information
+==========================================
+
+The DIERCKX FITPACK library was originally written by Paul Dierckx.
+
+Author:
+  P. Dierckx
+  Dept. Computer Science, K.U.Leuven
+  Celestijnenlaan 200a, B-3001 Heverlee, Belgium
+  E-mail: Paul.Dierckx@cs.kuleuven.ac.be
+
+References:
+  - de Boor C: "On calculating with B-splines", J. Approximation Theory 6 (1972) 50-62
+  - Cox M.G.: "The numerical evaluation of B-splines", J. Inst. Maths Applics 10 (1972) 134-149  
+  - Dierckx P.: "Curve and surface fitting with splines", Monographs on Numerical Analysis, Oxford University Press, 1993
+
+The DIERCKX FITPACK routines included in this package (bispev.f, fpbisp.f, fpbspl.f) are:
+- Used under the same license terms as SciPy (BSD 3-Clause)
+- Originally distributed as part of SciPy
+- Redistributed here for performance research purposes
+
+The original FITPACK library is in the public domain or has compatible licensing
+that allows redistribution within open source projects like SciPy.
+
+For the most current license information, see the SciPy project documentation
+and the original FITPACK/DIERCKX distribution.

@@ -1,0 +1,15 @@
+include README.md
+include LICENSE
+include CLAUDE.md
+include Makefile
+recursive-include src *.f *.c *.h
+recursive-include include *.h
+recursive-include lib *.so
+recursive-include fastspline/lib *.so
+recursive-include thirdparty *.txt
+recursive-include benchmarks *.py *.png *.pdf
+recursive-include tests *.py
+recursive-include examples *.py
+recursive-include docs *.md *.txt
+prune fastspline/__pycache__
+prune **/__pycache__

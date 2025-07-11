@@ -7,15 +7,25 @@ from pathlib import Path
 import os
 
 # Load the shared library
-lib_path = Path(__file__).parent.parent.parent / "lib" / "libbispev.so"
-if not lib_path.exists():
-    # Try alternative locations
-    for alt_path in ["./lib/libbispev.so", "./libbispev.so", "/usr/local/lib/libbispev.so"]:
-        if os.path.exists(alt_path):
-            lib_path = alt_path
-            break
-    else:
-        raise RuntimeError(f"Could not find libbispev.so. Please run 'make' first.")
+# Try multiple locations for the library
+lib_locations = [
+    Path(__file__).parent.parent / "lib" / "libbispev.so",  # Package location
+    Path(__file__).parent.parent.parent / "lib" / "libbispev.so",  # Development location
+    Path("./lib/libbispev.so"),  # Relative to cwd
+    Path("./libbispev.so"),  # Current directory
+    Path("/usr/local/lib/libbispev.so"),  # System install
+]
+
+lib_path = None
+for path in lib_locations:
+    if path.exists():
+        lib_path = path
+        break
+
+if lib_path is None:
+    raise RuntimeError(
+        "Could not find libbispev.so. Please run 'make' first or ensure the library is installed."
+    )
 
 lib = ctypes.CDLL(str(lib_path))
 

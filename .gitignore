@@ -5,6 +5,7 @@ __pycache__/
 
 # C extensions
 *.so
+!fastspline/lib/*.so
 dierckx_f2py.cpython-*.so
 
 # Distribution / packaging
@@ -260,3 +261,6 @@ test_*.tmp
 *.o
 *.a
 *.exe
+
+# Cleanup files
+CLEANUP_SUMMARY.md

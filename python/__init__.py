@@ -1,1 +1,0 @@
-"""FastSpline Python implementations."""
