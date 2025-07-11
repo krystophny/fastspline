@@ -17,7 +17,7 @@ C_OBJS = $(C_SRCS:.c=.o)
 ALL_OBJS = $(FORTRAN_OBJS) $(C_OBJS)
 
 # Target library
-TARGET = libbispev.so
+TARGET = lib/libbispev.so
 
 # Build rules
 all: $(TARGET)
@@ -36,6 +36,12 @@ $(TARGET): $(ALL_OBJS)
 # Clean
 clean:
 	rm -f $(ALL_OBJS) $(TARGET)
+
+# Ensure lib directory exists
+$(TARGET): | lib
+
+lib:
+	mkdir -p lib
 
 # Install (optional)
 install: $(TARGET)

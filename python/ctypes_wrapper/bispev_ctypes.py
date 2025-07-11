@@ -7,10 +7,10 @@ from pathlib import Path
 import os
 
 # Load the shared library
-lib_path = Path(__file__).parent / "libbispev.so"
+lib_path = Path(__file__).parent.parent.parent / "lib" / "libbispev.so"
 if not lib_path.exists():
     # Try alternative locations
-    for alt_path in ["./libbispev.so", "/usr/local/lib/libbispev.so"]:
+    for alt_path in ["./lib/libbispev.so", "./libbispev.so", "/usr/local/lib/libbispev.so"]:
         if os.path.exists(alt_path):
             lib_path = alt_path
             break
