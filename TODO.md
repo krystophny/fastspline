@@ -142,10 +142,30 @@ Based on analysis, likely issues:
 
 ## Current Action Items
 
-1. **IMMEDIATE**: Create test_parder_comprehensive.py with failing tests
-2. **NEXT**: Study DIERCKX parder.f algorithm implementation
-3. **THEN**: Fix parder.py implementation one derivative order at a time
-4. **FINALLY**: Update documentation and remove "known limitations"
+1. ✅ **COMPLETED**: Create test_parder_comprehensive.py with failing tests
+2. ✅ **COMPLETED**: Study DIERCKX parder.f algorithm implementation
+3. 🔄 **IN PROGRESS**: Fix parder.py implementation one derivative order at a time
+4. **NEXT**: Implement proper B-spline derivative recurrence relation
+5. **FINALLY**: Update documentation and remove "known limitations"
+
+## Progress Update
+
+### What We've Fixed ✅
+- Fixed knot interval search to use `nux`/`nuy` instead of `kx`/`ky` for derivatives
+- Fixed domain restriction for derivative evaluation
+- Fixed coefficient indexing for derivative cases
+- Improved error from ~6.0 to ~0.125 for simple linear derivatives
+
+### Current Issues ❌
+- fpbspl derivative algorithm is still incorrect
+- Need to implement proper B-spline derivative recurrence relation
+- The current implementation uses a simplified approach that doesn't match DIERCKX exactly
+
+### Key Insights 🔍
+- DIERCKX calls fpbspl with 6 parameters including derivative order
+- Our fpbspl implementation doesn't handle derivatives correctly
+- The B-spline derivative recurrence relation is complex and needs proper implementation
+- Function values (0,0) work perfectly, indicating infrastructure is correct
 
 ## Notes
 

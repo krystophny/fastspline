@@ -75,10 +75,28 @@ def parder_cfunc(tx, nx, ty, ny, c, kx, ky, nux, nuy, x, mx, y, my, z, wrk, lwrk
         # Compute B-spline basis functions in x direction with derivatives
         ak_x = x[i]
         
-        # Find knot interval for x
-        l_x = kx
-        while l_x < nkx1 and ak_x >= tx[l_x + 1]:
-            l_x += 1
+        # Find knot interval for x (following DIERCKX algorithm exactly)
+        if nux == 0:
+            # Standard case: use kx and clamp to normal domain
+            l_x = kx
+            while l_x < nkx1 and ak_x >= tx[l_x + 1]:
+                l_x += 1
+        else:
+            # Derivative case: use nux and clamp to derivative domain
+            nkx1_deriv = nx - nux
+            tb = tx[nux] if nux < nx else tx[nx-1]
+            te = tx[nkx1_deriv-1] if nkx1_deriv > 0 else tx[0]
+            if ak_x < tb:
+                ak_x = tb
+            if ak_x > te:
+                ak_x = te
+                
+            # Search starting from nux
+            l_x = nux
+            while l_x < nkx1_deriv - 1 and ak_x >= tx[l_x + 1]:
+                l_x += 1
+            if ak_x == tx[l_x + 1]:
+                l_x += 1
         
         # Compute fpbspl(tx, nx, kx, ak_x, nux, l_x, wrk_x) - inline
         iwx = i * (kx1 - nux)
@@ -128,10 +146,28 @@ def parder_cfunc(tx, nx, ty, ny, c, kx, ky, nux, nuy, x, mx, y, my, z, wrk, lwrk
             # Compute B-spline basis functions in y direction with derivatives
             ak_y = y[j]
             
-            # Find knot interval for y
-            l_y = ky
-            while l_y < nky1 and ak_y >= ty[l_y + 1]:
-                l_y += 1
+            # Find knot interval for y (following DIERCKX algorithm exactly)
+            if nuy == 0:
+                # Standard case: use ky and clamp to normal domain  
+                l_y = ky
+                while l_y < nky1 and ak_y >= ty[l_y + 1]:
+                    l_y += 1
+            else:
+                # Derivative case: use nuy and clamp to derivative domain
+                nky1_deriv = ny - nuy
+                tb = ty[nuy] if nuy < ny else ty[ny-1]
+                te = ty[nky1_deriv-1] if nky1_deriv > 0 else ty[0]
+                if ak_y < tb:
+                    ak_y = tb
+                if ak_y > te:
+                    ak_y = te
+                    
+                # Search starting from nuy
+                l_y = nuy
+                while l_y < nky1_deriv - 1 and ak_y >= ty[l_y + 1]:
+                    l_y += 1
+                if ak_y == ty[l_y + 1]:
+                    l_y += 1
             
             # Compute fpbspl(ty, ny, ky, ak_y, nuy, l_y, wrk_y) - inline
             iwy = (kx1 - nux) * mx + j * (ky1 - nuy)
@@ -179,7 +215,19 @@ def parder_cfunc(tx, nx, ty, ny, c, kx, ky, nux, nuy, x, mx, y, my, z, wrk, lwrk
             
             # Compute the partial derivative using tensor product
             z[m] = 0.0
-            l2 = (l_x - kx) * nky1 + (l_y - ky)
+            
+            # Coefficient indexing following DIERCKX exactly
+            if nux == 0 and nuy == 0:
+                # Standard case: l2 = (l_x - kx) * nky1 + (l_y - ky)
+                l2 = (l_x - kx) * nky1 + (l_y - ky)
+            else:
+                # Derivative case: adjust for derivative indexing
+                if nux == 0:
+                    l2 = (l_x - kx) * nky1 + (l_y - nuy)
+                elif nuy == 0:
+                    l2 = (l_x - nux) * nky1 + (l_y - ky) 
+                else:
+                    l2 = (l_x - nux) * nky1 + (l_y - nuy)
             
             for lx in range(kx1 - nux):
                 l1 = l2
