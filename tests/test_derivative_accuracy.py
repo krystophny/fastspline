@@ -134,7 +134,7 @@ def test_cfunc_derivative_matching():
     try:
         import sys
         sys.path.append('fastspline/numba_implementation')
-        from parder_correct import parder_correct_cfunc_address
+        from parder import parder_cfunc_address as parder_correct_cfunc_address
         import ctypes
         
         # Create test data
