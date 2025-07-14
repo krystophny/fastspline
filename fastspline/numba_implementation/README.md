@@ -53,22 +53,84 @@ Comprehensive test suite ensures correctness:
 
 ### From Python via ctypes
 
+#### Function Evaluation Example
 ```python
-import ctypes
 import numpy as np
+import ctypes
+from scipy.interpolate import bisplrep
 from fastspline.numba_implementation.bispev_numba import bispev_cfunc_address
-from fastspline.numba_implementation.parder import parder_cfunc_address
+
+# Prepare spline data
+x = y = np.linspace(0, 1, 10)
+X, Y = np.meshgrid(x, y, indexing='ij')
+Z = X**2 + Y**2
+tck = bisplrep(X.ravel(), Y.ravel(), Z.ravel(), kx=3, ky=3)
+tx, ty, c = tck[0], tck[1], tck[2]
 
 # Create ctypes wrapper for function evaluation
-bispev_func = ctypes.CFUNCTYPE(None, ...)(bispev_cfunc_address)
+bispev_func = ctypes.CFUNCTYPE(
+    None,
+    ctypes.POINTER(ctypes.c_double),  # tx
+    ctypes.c_int32,                    # nx
+    ctypes.POINTER(ctypes.c_double),  # ty
+    ctypes.c_int32,                    # ny
+    ctypes.POINTER(ctypes.c_double),  # c
+    ctypes.c_int32,                    # kx
+    ctypes.c_int32,                    # ky
+    ctypes.POINTER(ctypes.c_double),  # x
+    ctypes.c_int32,                    # mx
+    ctypes.POINTER(ctypes.c_double),  # y
+    ctypes.c_int32,                    # my
+    ctypes.POINTER(ctypes.c_double),  # z
+    ctypes.POINTER(ctypes.c_double),  # wrk
+    ctypes.POINTER(ctypes.c_int32),   # iwrk
+    ctypes.POINTER(ctypes.c_int32),   # ier
+)(bispev_cfunc_address)
 
-# Create ctypes wrapper for derivative evaluation  
-parder_func = ctypes.CFUNCTYPE(None, ...)(parder_cfunc_address)
+# Evaluate at points
+xi = yi = np.array([0.5])
+z_out = np.zeros(1, dtype=np.float64)
+wrk = np.zeros(100, dtype=np.float64)
+iwrk = np.zeros(20, dtype=np.int32)
+ier = np.zeros(1, dtype=np.int32)
+
+bispev_func(
+    tx.ctypes.data_as(ctypes.POINTER(ctypes.c_double)), len(tx),
+    ty.ctypes.data_as(ctypes.POINTER(ctypes.c_double)), len(ty),
+    c.ctypes.data_as(ctypes.POINTER(ctypes.c_double)), 3, 3,
+    xi.ctypes.data_as(ctypes.POINTER(ctypes.c_double)), 1,
+    yi.ctypes.data_as(ctypes.POINTER(ctypes.c_double)), 1,
+    z_out.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
+    wrk.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
+    iwrk.ctypes.data_as(ctypes.POINTER(ctypes.c_int32)),
+    ier.ctypes.data_as(ctypes.POINTER(ctypes.c_int32))
+)
+print(f"f(0.5, 0.5) = {z_out[0]}")
+```
+
+#### Derivative Evaluation Example
+```python
+from fastspline.numba_implementation.parder import call_parder_safe
+
+# Use the safe wrapper for easier derivative computation
+xi = yi = np.array([0.5])
+
+# Compute first derivatives
+dx, ier = call_parder_safe(tx, ty, c, 3, 3, 1, 0, xi, yi)  # ∂f/∂x
+dy, ier = call_parder_safe(tx, ty, c, 3, 3, 0, 1, xi, yi)  # ∂f/∂y
+
+# Compute second derivatives
+dxx, ier = call_parder_safe(tx, ty, c, 3, 3, 2, 0, xi, yi)  # ∂²f/∂x²
+dyy, ier = call_parder_safe(tx, ty, c, 3, 3, 0, 2, xi, yi)  # ∂²f/∂y²
+dxy, ier = call_parder_safe(tx, ty, c, 3, 3, 1, 1, xi, yi)  # ∂²f/∂x∂y
+
+print(f"∂f/∂x = {dx[0]}, ∂f/∂y = {dy[0]}")
+print(f"∂²f/∂x² = {dxx[0]}, ∂²f/∂y² = {dyy[0]}, ∂²f/∂x∂y = {dxy[0]}")
 ```
 
 ### Integration with FastSpline
 
-These implementations provide the high-performance backend for the FastSpline library, offering scipy-compatible interfaces with optimized execution.
+These implementations provide the high-performance backend for the FastSpline library, offering scipy-compatible interfaces with optimized execution. The cfunc implementations can be used directly for maximum performance in hot loops or integrated through the provided wrapper functions for convenience.
 
 ## Files
 

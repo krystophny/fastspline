@@ -13,9 +13,19 @@ FastSpline is a high-performance bivariate spline interpolation library implemen
 The repository contains a complete FastSpline implementation featuring:
 - **Complete spline evaluation**: Function values and all derivative orders
 - **Pure cfunc implementations**: `bispev_numba.py` for evaluation, `parder.py` for derivatives  
+- **Single inlined functions**: All operations inlined within bispev_cfunc and parder_cfunc
+- **No numpy arrays in cfunc**: Uses only workspace arrays for proper memory management
+- **Safe wrapper functions**: `call_parder_safe` for memory-safe derivative evaluation
 - **Comprehensive test suite**: 15/15 tests pass with exact floating-point validation
 - **Bit-exact accuracy**: Matches scipy to machine precision (1e-14 relative tolerance)
 - **Performance optimization**: Minimal overhead over scipy with native code compilation
+
+**IMPLEMENTATION STATUS**: 
+- ✅ Function evaluation (bispev) - Complete cfunc implementation
+- ✅ Derivative evaluation (parder) - Complete cfunc implementation with proper workspace usage
+- ✅ All tests passing (15/15)
+- ✅ No numpy usage in cfuncs
+- ✅ All operations inlined
 
 **IMPLEMENTATION RULE: When implementing new versions, old versions MUST be removed completely**
 
@@ -41,6 +51,19 @@ python fastspline/numba_implementation/parder.py
 
 # Test bispev implementation
 python fastspline/numba_implementation/test_bispev.py
+```
+
+### Using cfunc Implementations
+```python
+# For function evaluation
+from fastspline.numba_implementation.bispev_numba import bispev_cfunc_address
+import ctypes
+
+# For derivative evaluation with safe wrapper
+from fastspline.numba_implementation.parder import call_parder_safe
+
+# Example: Compute derivatives
+z_deriv, ier = call_parder_safe(tx, ty, c, kx, ky, nux, nuy, xi, yi)
 ```
 
 ### Running Performance Comparisons

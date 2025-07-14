@@ -123,31 +123,142 @@ pytest tests/  # All 15 tests pass
 
 ## Usage Examples
 
-### High-Performance Function Evaluation
+### High-Performance Function Evaluation with cfunc
 ```python
+import numpy as np
 import ctypes
+from scipy.interpolate import bisplrep
 from fastspline.numba_implementation.bispev_numba import bispev_cfunc_address
 
-# Create optimized ctypes wrapper
-bispev_fast = ctypes.CFUNCTYPE(None, ...)(bispev_cfunc_address)
-# Use for repeated high-performance evaluations
+# Create test data and fit spline
+x = y = np.linspace(0, 1, 10)
+X, Y = np.meshgrid(x, y, indexing='ij')
+Z = X**2 + Y**2
+tck = bisplrep(X.ravel(), Y.ravel(), Z.ravel(), kx=3, ky=3)
+
+# Extract spline parameters
+tx, ty, c = tck[0], tck[1], tck[2]
+nx, ny = len(tx), len(ty)
+
+# Evaluation points
+xi = yi = np.linspace(0, 1, 50)
+mx, my = len(xi), len(yi)
+
+# Setup output and workspace
+z_out = np.zeros(mx * my, dtype=np.float64)
+wrk = np.zeros(1000, dtype=np.float64)
+iwrk = np.zeros(100, dtype=np.int32)
+ier = np.zeros(1, dtype=np.int32)
+
+# Create ctypes function
+bispev_func = ctypes.CFUNCTYPE(
+    None,
+    ctypes.POINTER(ctypes.c_double),  # tx
+    ctypes.c_int32,                    # nx
+    ctypes.POINTER(ctypes.c_double),  # ty
+    ctypes.c_int32,                    # ny
+    ctypes.POINTER(ctypes.c_double),  # c
+    ctypes.c_int32,                    # kx
+    ctypes.c_int32,                    # ky
+    ctypes.POINTER(ctypes.c_double),  # x
+    ctypes.c_int32,                    # mx
+    ctypes.POINTER(ctypes.c_double),  # y
+    ctypes.c_int32,                    # my
+    ctypes.POINTER(ctypes.c_double),  # z
+    ctypes.POINTER(ctypes.c_double),  # wrk
+    ctypes.POINTER(ctypes.c_int32),   # iwrk
+    ctypes.POINTER(ctypes.c_int32),   # ier
+)(bispev_cfunc_address)
+
+# Call the high-performance cfunc
+bispev_func(
+    tx.ctypes.data_as(ctypes.POINTER(ctypes.c_double)), nx,
+    ty.ctypes.data_as(ctypes.POINTER(ctypes.c_double)), ny,
+    c.ctypes.data_as(ctypes.POINTER(ctypes.c_double)), 3, 3,
+    xi.ctypes.data_as(ctypes.POINTER(ctypes.c_double)), mx,
+    yi.ctypes.data_as(ctypes.POINTER(ctypes.c_double)), my,
+    z_out.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
+    wrk.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
+    iwrk.ctypes.data_as(ctypes.POINTER(ctypes.c_int32)),
+    ier.ctypes.data_as(ctypes.POINTER(ctypes.c_int32))
+)
+
+# Reshape output
+z_result = z_out.reshape(mx, my)
 ```
 
-### Complete Derivative Analysis
+### Complete Derivative Analysis with cfunc
 ```python
-from scipy.interpolate import bisplrep, dfitpack
 import numpy as np
+from scipy.interpolate import bisplrep
+from fastspline.numba_implementation.parder import call_parder_safe
 
-# Fit spline to data
-tck = bisplrep(x_data, y_data, z_data, kx=3, ky=3)
+# Create test data
+x = y = np.linspace(0, 1, 8)
+X, Y = np.meshgrid(x, y, indexing='ij')
+Z = X**3 + Y**3  # Cubic function for interesting derivatives
+
+# Fit spline
+tck = bisplrep(X.ravel(), Y.ravel(), Z.ravel(), kx=3, ky=3, s=0.01)
+tx, ty, c = tck[0], tck[1], tck[2]
 
 # Evaluate all derivatives at a point
+xi, yi = np.array([0.5]), np.array([0.5])
 derivatives = {}
+
+# Compute all derivative orders up to 2
 for nux in range(3):
     for nuy in range(3):
-        if nux + nuy <= 2:  # Up to second-order derivatives
-            z, ier = dfitpack.parder(*tck, nux, nuy, [x_point], [y_point])
-            derivatives[(nux, nuy)] = z[0, 0]
+        if nux + nuy <= 2:
+            # Use the safe wrapper for cfunc derivative evaluation
+            z_deriv, ier = call_parder_safe(tx, ty, c, 3, 3, nux, nuy, xi, yi)
+            derivatives[(nux, nuy)] = z_deriv[0]
+            
+            # Print results
+            if nux == 0 and nuy == 0:
+                print(f"f(x,y) = {z_deriv[0]:.6f}")
+            elif nux == 1 and nuy == 0:
+                print(f"∂f/∂x = {z_deriv[0]:.6f}")
+            elif nux == 0 and nuy == 1:
+                print(f"∂f/∂y = {z_deriv[0]:.6f}")
+            elif nux == 2 and nuy == 0:
+                print(f"∂²f/∂x² = {z_deriv[0]:.6f}")
+            elif nux == 0 and nuy == 2:
+                print(f"∂²f/∂y² = {z_deriv[0]:.6f}")
+            elif nux == 1 and nuy == 1:
+                print(f"∂²f/∂x∂y = {z_deriv[0]:.6f}")
+```
+
+### Direct cfunc Access for Maximum Performance
+```python
+import ctypes
+from fastspline.numba_implementation.parder import parder_cfunc_address
+
+# For extreme performance needs, create direct ctypes wrapper
+parder_func = ctypes.CFUNCTYPE(
+    None,
+    ctypes.POINTER(ctypes.c_double),  # tx
+    ctypes.c_int32,                    # nx
+    ctypes.POINTER(ctypes.c_double),  # ty
+    ctypes.c_int32,                    # ny
+    ctypes.POINTER(ctypes.c_double),  # c
+    ctypes.c_int32,                    # kx
+    ctypes.c_int32,                    # ky
+    ctypes.c_int32,                    # nux
+    ctypes.c_int32,                    # nuy
+    ctypes.POINTER(ctypes.c_double),  # x
+    ctypes.c_int32,                    # mx
+    ctypes.POINTER(ctypes.c_double),  # y
+    ctypes.c_int32,                    # my
+    ctypes.POINTER(ctypes.c_double),  # z
+    ctypes.POINTER(ctypes.c_double),  # wrk
+    ctypes.c_int32,                    # lwrk
+    ctypes.POINTER(ctypes.c_int32),   # iwrk
+    ctypes.c_int32,                    # kwrk
+    ctypes.POINTER(ctypes.c_int32),   # ier
+)(parder_cfunc_address)
+
+# Direct call for hot loops (ensure proper memory allocation!)
 ```
 
 ## License
