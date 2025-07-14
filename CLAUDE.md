@@ -8,7 +8,11 @@ FastSpline is a high-performance spline interpolation project focused on optimiz
 
 ## Current State
 
-The repository has undergone significant cleanup, with most implementation files removed (visible in git history). Currently contains only performance comparison and benchmarking scripts that demonstrate scipy interface overhead analysis.
+The repository contains a complete fastspline implementation with:
+- Working Numba cfunc implementations for bivariate spline interpolation
+- Comprehensive test suite with 15 passing tests
+- Derivative support through scipy.interpolate.dfitpack.parder
+- Performance comparison and benchmarking scripts
 
 ## Key Commands
 
@@ -24,18 +28,15 @@ python compare_scipy_f2py_direct.py
 python compare_scipy_f2py_performance_final.py
 ```
 
-### Historical Commands (from deleted files)
+### Running Tests
 ```bash
-# Build DIERCKX f2py wrapper (when build script existed)
-./build_dierckx_f2py.sh
+# Run all tests
+python -m pytest tests/ -v
 
-# Run validation tests
-python tests/test_dierckx_cfunc.py
-python tests/test_automatic_validation.py
-
-# Run benchmarks
-python examples/benchmark_performance.py
-python examples/benchmark_bisplrep_bisplev.py
+# Run specific test files
+python -m pytest tests/test_derivative_accuracy.py -v
+python -m pytest tests/test_fastspline.py -v
+python -m pytest tests/test_ci.py -v
 ```
 
 ## Architecture and Implementation Notes
@@ -54,13 +55,14 @@ python examples/benchmark_bisplrep_bisplev.py
 - Smoothing parameter `s` significantly impacts performance (s=0 for exact interpolation is slowest)
 - The scipy interface overhead is typically minimal (<1%) for most use cases
 
-### Historical File Structure
+### Current File Structure
 
-The complete implementation included:
-- `dierckx_cfunc.py`: Core Numba implementations of DIERCKX routines
-- `thirdparty/dierckx/`: Original Fortran source files
-- `tests/`: Comprehensive validation against scipy
-- `examples/`: Usage and benchmark examples
+The implementation includes:
+- `fastspline/numba_implementation/`: Numba cfunc implementations including working parder_correct.py
+- `src/fortran/`: Fortran source files with compiled object files
+- `src/c/`: C wrapper implementations
+- `tests/`: Comprehensive test suite with derivative accuracy validation
+- Performance comparison scripts in root directory
 
 ## Development Considerations
 
