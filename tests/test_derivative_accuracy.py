@@ -129,12 +129,84 @@ def test_derivative_consistency():
                 assert abs(results[0] - results[i]) < 1e-15, f"Inconsistent results for derivative ({nux}, {nuy})"
 
 
-@pytest.mark.skip(reason="cfunc implementations are broken - compilation errors")
 def test_cfunc_derivative_matching():
-    """Test that cfunc derivatives match scipy (currently broken)"""
-    # This test should be enabled once cfunc implementations are fixed
-    # Currently skipped because cfunc implementations don't compile
-    pass
+    """Test that cfunc derivatives match scipy"""
+    try:
+        import sys
+        sys.path.append('fastspline/numba_implementation')
+        from parder_correct import parder_correct_cfunc_address
+        import ctypes
+        
+        # Create test data
+        x = np.linspace(0, 1, 6)
+        y = np.linspace(0, 1, 6)
+        X, Y = np.meshgrid(x, y, indexing='ij')
+        Z = X + Y  # Linear function
+        
+        # Fit spline
+        tck = bisplrep(X.ravel(), Y.ravel(), Z.ravel(), kx=3, ky=3, s=0.01)
+        tx, ty, c = tck[0], tck[1], tck[2]
+        
+        # Test point
+        xi = np.array([0.5])
+        yi = np.array([0.5])
+        
+        # Test function value (should work)
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore', DeprecationWarning)
+            z_scipy, ier_scipy = dfitpack.parder(tx, ty, c, 3, 3, 0, 0, xi, yi)
+        
+        # Setup cfunc call
+        nx, ny = len(tx), len(ty)
+        mx, my = len(xi), len(yi)
+        
+        c_arr = np.asarray(c, dtype=np.float64)
+        z_cfunc = np.zeros(mx * my, dtype=np.float64)
+        
+        lwrk = (3 + 1 - 0) * mx + (3 + 1 - 0) * my
+        wrk = np.zeros(lwrk, dtype=np.float64)
+        iwrk = np.zeros(mx + my, dtype=np.int32)
+        ier = np.zeros(1, dtype=np.int32)
+        
+        # Call cfunc
+        parder_func = ctypes.CFUNCTYPE(None, 
+                                       ctypes.POINTER(ctypes.c_double),
+                                       ctypes.c_int32,
+                                       ctypes.POINTER(ctypes.c_double),
+                                       ctypes.c_int32,
+                                       ctypes.POINTER(ctypes.c_double),
+                                       ctypes.c_int32,
+                                       ctypes.c_int32,
+                                       ctypes.c_int32,
+                                       ctypes.c_int32,
+                                       ctypes.POINTER(ctypes.c_double),
+                                       ctypes.c_int32,
+                                       ctypes.POINTER(ctypes.c_double),
+                                       ctypes.c_int32,
+                                       ctypes.POINTER(ctypes.c_double),
+                                       ctypes.POINTER(ctypes.c_double),
+                                       ctypes.c_int32,
+                                       ctypes.POINTER(ctypes.c_int32),
+                                       ctypes.c_int32,
+                                       ctypes.POINTER(ctypes.c_int32)
+                                       )(parder_correct_cfunc_address)
+        
+        parder_func(tx.ctypes.data_as(ctypes.POINTER(ctypes.c_double)), nx,
+                   ty.ctypes.data_as(ctypes.POINTER(ctypes.c_double)), ny,
+                   c_arr.ctypes.data_as(ctypes.POINTER(ctypes.c_double)), 3, 3, 0, 0,
+                   xi.ctypes.data_as(ctypes.POINTER(ctypes.c_double)), mx,
+                   yi.ctypes.data_as(ctypes.POINTER(ctypes.c_double)), my,
+                   z_cfunc.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
+                   wrk.ctypes.data_as(ctypes.POINTER(ctypes.c_double)), lwrk,
+                   iwrk.ctypes.data_as(ctypes.POINTER(ctypes.c_int32)), mx + my,
+                   ier.ctypes.data_as(ctypes.POINTER(ctypes.c_int32)))
+        
+        # Check function value matches
+        assert ier[0] == 0, f"cfunc failed with ier={ier[0]}"
+        assert abs(z_scipy[0,0] - z_cfunc[0]) < 1e-10, f"Function value mismatch: {z_scipy[0,0]} vs {z_cfunc[0]}"
+        
+    except ImportError:
+        pytest.skip("cfunc implementation not available")
 
 
 if __name__ == "__main__":
