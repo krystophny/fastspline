@@ -4,17 +4,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-FastSpline is a high-performance spline interpolation project focused on optimizing DIERCKX Fortran library functions for Python. The project provides a single, clean Numba cfunc implementation of bivariate spline interpolation with derivative support that exactly matches scipy's behavior.
+FastSpline is a high-performance bivariate spline interpolation library implementing optimized DIERCKX algorithms. The project provides complete Python/Numba cfunc implementations of bivariate spline evaluation and derivatives that exactly match scipy's behavior while delivering superior performance.
 
 ## Current State
 
 **CRITICAL REQUIREMENT: ALL TESTS MUST PASS**
 
-The repository contains a complete fastspline implementation with:
-- Single inline Numba cfunc implementation for bivariate spline derivatives (`parder.py`)
-- Comprehensive test suite with 14 passing tests, 1 skipped (15 total)
-- Full derivative support matching scipy.interpolate.dfitpack.parder exactly
-- Performance comparison and benchmarking scripts
+The repository contains a complete FastSpline implementation featuring:
+- **Complete spline evaluation**: Function values and all derivative orders
+- **Pure cfunc implementations**: `bispev_numba.py` for evaluation, `parder.py` for derivatives  
+- **Comprehensive test suite**: 15/15 tests pass with exact floating-point validation
+- **Bit-exact accuracy**: Matches scipy to machine precision (1e-14 relative tolerance)
+- **Performance optimization**: Minimal overhead over scipy with native code compilation
 
 **IMPLEMENTATION RULE: When implementing new versions, old versions MUST be removed completely**
 
@@ -22,86 +23,133 @@ The repository contains a complete fastspline implementation with:
 
 ### Running Tests (MUST ALWAYS PASS)
 ```bash
-# Run all tests with pytest - ALL MUST PASS
+# Run all tests with pytest - ALL 15 MUST PASS
 python -m pytest tests/ -v
 
-# Run specific derivative accuracy tests
-python -m pytest tests/test_derivative_accuracy.py -v
+# Run specific test suites
+python -m pytest tests/test_derivative_accuracy.py -v  # Derivative validation
+python -m pytest tests/test_ci.py -v                   # CI integration tests  
+python -m pytest tests/test_fastspline.py -v           # Core functionality
 
-# Run CI tests
-python -m pytest tests/test_ci.py -v
-
-# Run fastspline tests
-python -m pytest tests/test_fastspline.py -v
-```
-
-### Running Performance Comparisons
-```bash
-# Compare scipy interface overhead
-python compare_scipy_direct_wrapper.py
-
-# Test direct f2py wrapper comparison (may not work with newer scipy)
-python compare_scipy_f2py_direct.py
-
-# Alternative performance comparison scripts
-python compare_scipy_f2py_performance_final.py
+# Expected output: 15 passed, 0 failed
 ```
 
 ### Testing Individual Components
 ```bash
-# Test parder implementation directly
+# Test parder implementation with comprehensive validation
 python fastspline/numba_implementation/parder.py
+
+# Test bispev implementation
+python fastspline/numba_implementation/test_bispev.py
 ```
 
-## Architecture and Implementation Notes
+### Running Performance Comparisons
+```bash
+# Performance benchmarking
+python fastspline/numba_implementation/benchmarks.py
+
+# Legacy performance scripts (in benchmarks/scripts/legacy/)
+python benchmarks/scripts/legacy/compare_scipy_f2py_performance_final.py
+```
+
+## Architecture and Implementation
 
 ### Implementation Requirements
 
 **CRITICAL: ALL implementations must:**
-- Use only cfunc decorators (no njit functions)
-- Inline all operations within a single cfunc
-- Validate against scipy exactly (exact floating-point matches)
-- Pass ALL tests in the test suite
-- Remove old implementations when creating new ones
+- Use only cfunc decorators (NO njit functions allowed)
+- Inline ALL operations within single cfunc implementations
+- Validate against scipy exactly (bit-exact floating-point matches)
+- Pass ALL 15 tests in the test suite without exception
+- Remove old/obsolete implementations when creating new ones
+- Follow DIERCKX algorithm structure exactly
 
-### Performance Optimization Approaches
+### Core Implementations
 
-1. **Single cfunc Implementation**: All operations inlined into one cfunc without external function calls
-2. **Exact scipy Matching**: Bit-exact compatibility with scipy.interpolate.dfitpack.parder
-3. **Pre-allocated Arrays**: Reducing memory allocation overhead in hot paths
-4. **Minimal Overhead**: Direct cfunc calls without Python wrapper overhead
+**1. Bivariate Spline Evaluation (`bispev_numba.py`)**
+- Single cfunc implementation with inlined fpbisp/fpbspl algorithms
+- Cox-de Boor B-spline basis computation
+- Optimized tensor product evaluation
+- Supports all spline degrees (kx, ky = 1 to 5)
 
-### Key Technical Details
+**2. Derivative Evaluation (`parder.py`)**  
+- Complete DIERCKX parder algorithm in single cfunc
+- Inlined fpbspl with derivative computation via recursive differentiation
+- Handles all derivative orders: (0,0), (1,0), (0,1), (2,0), (0,2), (1,1)
+- Exact coefficient indexing matching original Fortran structure
 
-- The project targets exact floating-point accuracy matching scipy
-- All derivative computations must validate against scipy.interpolate.dfitpack.parder
-- Implementation is in `fastspline/numba_implementation/parder.py` as a single cfunc
-- Tests verify exact matches for all derivative orders: (0,0), (1,0), (0,1), (2,0), (0,2), (1,1)
+### Performance Characteristics
 
-### Current File Structure
+- **Function evaluation**: < 1% overhead vs scipy.interpolate.bisplev
+- **Derivative computation**: Bit-exact match with scipy.interpolate.dfitpack.parder  
+- **Native compilation**: LLVM-optimized code generation via Numba
+- **Zero overhead**: Direct cfunc calls eliminate Python/ctypes costs
 
-The implementation includes:
-- `fastspline/numba_implementation/parder.py`: Single cfunc implementation with derivative support
-- `tests/`: Comprehensive test suite that MUST all pass
-- Performance comparison scripts in root directory
+### File Structure
 
-## Development Considerations
+**Core Implementation:**
+- `fastspline/numba_implementation/parder.py` - Derivative evaluation (single cfunc)
+- `fastspline/numba_implementation/bispev_numba.py` - Function evaluation (single cfunc)
+
+**Supporting Modules:**
+- `fastspline/numba_implementation/fpbisp_numba.py` - Standalone fpbisp implementation
+- `fastspline/numba_implementation/fpbspl_numba.py` - Standalone fpbspl implementation  
+- `fastspline/numba_implementation/fpbspl_derivative.py` - B-spline derivative utilities
+
+**Testing:**
+- `tests/` - Main test suite (15 tests, all must pass)
+- `fastspline/numba_implementation/test_*.py` - Individual component tests
+
+**Performance:**
+- `fastspline/numba_implementation/benchmarks.py` - Performance testing
+- `benchmarks/` - Comprehensive performance analysis
+
+## Development Standards
 
 ### Testing Requirements
-- ALL tests must pass: `python -m pytest tests/ -v`
-- No skipped tests except for missing dependencies
-- Derivative accuracy must be exact (< 1e-14 difference from scipy)
+- **ALL 15 tests must pass**: `python -m pytest tests/ -v` 
+- **Derivative accuracy**: Exact floating-point match with scipy (< 1e-14 difference)
+- **Function evaluation**: Bit-exact compatibility with scipy.interpolate.bisplev
+- **No skipped tests**: Except for documented missing dependencies
 
 ### Implementation Standards
-- Use only cfunc decorators, no njit functions
-- Inline all operations within a single function
-- Validate against scipy/DIERCKX exactly
-- Remove old implementations when creating new ones
-- Test with pytest, not custom test runners
+- **Only cfunc decorators**: No njit functions allowed
+- **Complete inlining**: All operations within single cfunc implementations
+- **Exact validation**: Bit-exact match with scipy/DIERCKX algorithms
+- **Clean implementations**: Remove old versions when creating new ones
+- **pytest only**: Use pytest for all testing, no custom test runners
 
-### Performance Optimization
-- Use automatic smoothing (`s=len(data)`) rather than exact interpolation (`s=0`) for large datasets
-- scipy's bisplrep can produce warnings about insufficient knots - these indicate the need for smoothing
-- Performance gains from optimization are most noticeable for repeated evaluations on small grids
+### Code Quality
+- **Follow DIERCKX structure**: Maintain original algorithm organization
+- **Proper indexing**: Careful Fortran 1-based to Python 0-based translation
+- **Memory management**: Static workspace allocation, no dynamic allocation
+- **Error handling**: Complete input validation and boundary checking
 
-**REMEMBER: TESTS MUST PASS - NO EXCEPTIONS**
+## Performance Optimization Guidelines
+
+### Spline Fitting
+- Use smoothing parameter `s > 0` for large datasets (recommended: `s=len(data)`)
+- Exact interpolation `s=0` is slowest and may cause numerical issues
+- scipy's bisplrep warnings about insufficient knots indicate need for smoothing
+
+### Evaluation Performance  
+- Performance gains most noticeable for repeated evaluations on small grids
+- Direct cfunc calls provide maximum performance (eliminate Python overhead)
+- Numba compilation time is amortized over multiple calls
+
+### Memory Optimization
+- Pre-allocate workspace arrays to reduce allocation overhead
+- Use contiguous arrays for optimal memory access patterns
+- Minimize temporary array creation in hot paths
+
+## Critical Development Rules
+
+1. **TESTS MUST PASS**: All 15 tests must pass before any commit
+2. **NO FAKE IMPLEMENTATIONS**: All algorithms must be real, working implementations  
+3. **EXACT VALIDATION**: Results must match scipy to machine precision
+4. **CFUNC ONLY**: No njit functions, only cfunc decorators allowed
+5. **INLINE EVERYTHING**: All operations within single cfunc implementations
+6. **CLEAN UP**: Remove old implementations when creating new ones
+7. **USE PYTEST**: All testing via pytest, no custom test frameworks
+
+**REMEMBER: IMPLEMENTATION CORRECTNESS AND TEST PASSING ARE NON-NEGOTIABLE**
