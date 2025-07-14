@@ -4,15 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-FastSpline is a high-performance bivariate spline interpolation library implementing optimized DIERCKX algorithms. The project provides complete Python/Numba cfunc implementations of bivariate spline evaluation and derivatives that exactly match scipy's behavior while delivering superior performance.
+FastSpline is a high-performance bivariate spline interpolation library implementing optimized DIERCKX algorithms. The project provides Python/Numba cfunc implementations of bivariate spline evaluation that exactly match scipy's behavior while delivering superior performance.
 
 ## Current State
 
 **CRITICAL REQUIREMENT: ALL TESTS MUST PASS**
 
-The repository contains a complete FastSpline implementation featuring:
-- **Complete spline evaluation**: Function values and all derivative orders
-- **Pure cfunc implementations**: `bispev_numba.py` for evaluation, `parder.py` for derivatives  
+The repository contains a FastSpline implementation featuring:
+- **High-performance spline evaluation**: Optimized function value computation
+- **Pure cfunc implementations**: `bispev_numba.py` for function evaluation, `parder.py` for derivatives  
 - **Single inlined functions**: All operations inlined within bispev_cfunc and parder_cfunc
 - **No numpy arrays in cfunc**: Uses only workspace arrays for proper memory management
 - **Safe wrapper functions**: `call_parder_safe` for memory-safe derivative evaluation
@@ -22,10 +22,12 @@ The repository contains a complete FastSpline implementation featuring:
 
 **IMPLEMENTATION STATUS**: 
 - ✅ Function evaluation (bispev) - Complete cfunc implementation, bit-exact match with scipy
+- ✅ bispev simplified - Removed derivative parameters, only handles function evaluation
 - ⚠️ Derivative evaluation (parder) - Function values (0,0) work correctly, but actual derivatives do not match scipy
 - ✅ All tests passing (15/15) - Note: tests primarily validate function values, not derivative accuracy
 - ✅ No numpy usage in cfuncs
 - ✅ All operations inlined
+- ✅ Cleaned up redundant test files
 
 **KNOWN LIMITATION**: The parder cfunc implementation correctly computes function values but uses a simplified derivative algorithm that doesn't match DIERCKX exactly. For accurate derivatives, use scipy's dfitpack.parder.
 

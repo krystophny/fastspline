@@ -6,20 +6,20 @@ High-performance bivariate spline interpolation library with optimized implement
 
 ## Overview
 
-FastSpline provides multiple high-performance implementations of bivariate spline interpolation with full derivative support:
+FastSpline provides multiple high-performance implementations of bivariate spline interpolation:
 
 1. **Fortran/C Wrapper** - Direct C wrapper around original DIERCKX Fortran routines
 2. **Pure Numba Implementation** - Complete rewrite in Python/Numba as optimized cfuncs
 
-Both implementations provide bit-exact compatibility with scipy's interpolation functions (`bisplev`/`parder`) while delivering optimal performance.
+The implementations provide bit-exact compatibility with scipy's interpolation functions (`bisplev`) for function evaluation while delivering optimal performance.
 
 ## Key Features
 
-- **Complete spline evaluation** - Function values and all derivative orders
+- **High-performance spline evaluation** - Optimized function value computation
 - **Bit-exact accuracy** - Matches scipy to machine precision (1e-14 relative tolerance)
 - **High performance** - Minimal overhead over scipy, native code compilation
 - **Multiple backends** - Choose between Fortran wrapper or pure Python/Numba
-- **Full derivative support** - All orders: (0,0), (1,0), (0,1), (2,0), (0,2), (1,1)
+- **Limited derivative support** - Derivatives available through scipy compatibility layer
 - **Comprehensive testing** - 15/15 tests pass with complete validation
 
 ## Installation
@@ -67,12 +67,12 @@ test_parder()  # Validates all derivative orders
 
 ## Performance
 
-FastSpline delivers excellent performance across all operations:
+FastSpline delivers excellent performance for function evaluation:
 
 - **Function evaluation**: < 1% overhead vs scipy.interpolate.bisplev
-- **Derivative computation**: Bit-exact match with scipy.interpolate.dfitpack.parder
 - **Native compilation**: LLVM-optimized code generation via Numba
 - **Zero overhead**: Direct cfunc calls eliminate Python/ctypes costs
+- **Derivative computation**: Available through scipy compatibility layer (scipy.interpolate.dfitpack.parder)
 
 ## Architecture
 
@@ -97,9 +97,9 @@ fastspline/
 **Numba cfunc Implementation:**
 - Pure Python/Numba with complete algorithm inlining
 - Cox-de Boor B-spline basis computation
-- Recursive derivative calculation via DIERCKX algorithms
-- Optimized tensor product evaluation
+- Optimized tensor product evaluation for function values
 - Single cfunc design eliminates function call overhead
+- Derivative calculation available through separate parder implementation
 
 **Fortran Wrapper:**
 - Minimal C interface to original DIERCKX routines
@@ -115,9 +115,9 @@ pytest tests/  # All 15 tests pass
 ```
 
 **Test Coverage:**
-- **Bit-exact accuracy** - All results match scipy to machine precision
+- **Bit-exact accuracy** - All function evaluation results match scipy to machine precision
 - **Multiple functions** - Linear, quadratic, polynomial, and product test cases  
-- **All derivative orders** - Complete validation of (0,0) through (2,0), (0,2), (1,1)
+- **Derivative validation** - Tests verify compatibility with scipy.interpolate.dfitpack.parder
 - **Edge cases** - Boundary conditions and error handling
 - **Performance** - Benchmarks validate optimization claims
 
@@ -152,7 +152,7 @@ kwrk = mx + my
 iwrk = np.zeros(kwrk, dtype=np.int32)
 ier = np.zeros(1, dtype=np.int32)
 
-# Create ctypes function
+# Create ctypes function (note: no derivative parameters)
 bispev_func = ctypes.CFUNCTYPE(
     None,
     ctypes.POINTER(ctypes.c_double),  # tx
