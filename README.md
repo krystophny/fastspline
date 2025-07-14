@@ -146,8 +146,10 @@ mx, my = len(xi), len(yi)
 
 # Setup output and workspace
 z_out = np.zeros(mx * my, dtype=np.float64)
-wrk = np.zeros(1000, dtype=np.float64)
-iwrk = np.zeros(100, dtype=np.int32)
+lwrk = mx * (3 + 1) + my * (3 + 1)  # mx*(kx+1) + my*(ky+1)
+wrk = np.zeros(lwrk, dtype=np.float64)
+kwrk = mx + my
+iwrk = np.zeros(kwrk, dtype=np.int32)
 ier = np.zeros(1, dtype=np.int32)
 
 # Create ctypes function
@@ -166,7 +168,9 @@ bispev_func = ctypes.CFUNCTYPE(
     ctypes.c_int32,                    # my
     ctypes.POINTER(ctypes.c_double),  # z
     ctypes.POINTER(ctypes.c_double),  # wrk
+    ctypes.c_int32,                    # lwrk
     ctypes.POINTER(ctypes.c_int32),   # iwrk
+    ctypes.c_int32,                    # kwrk
     ctypes.POINTER(ctypes.c_int32),   # ier
 )(bispev_cfunc_address)
 
@@ -178,8 +182,8 @@ bispev_func(
     xi.ctypes.data_as(ctypes.POINTER(ctypes.c_double)), mx,
     yi.ctypes.data_as(ctypes.POINTER(ctypes.c_double)), my,
     z_out.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
-    wrk.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
-    iwrk.ctypes.data_as(ctypes.POINTER(ctypes.c_int32)),
+    wrk.ctypes.data_as(ctypes.POINTER(ctypes.c_double)), lwrk,
+    iwrk.ctypes.data_as(ctypes.POINTER(ctypes.c_int32)), kwrk,
     ier.ctypes.data_as(ctypes.POINTER(ctypes.c_int32))
 )
 

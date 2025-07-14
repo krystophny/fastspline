@@ -90,8 +90,10 @@ bispev_func = ctypes.CFUNCTYPE(
 # Evaluate at points
 xi = yi = np.array([0.5])
 z_out = np.zeros(1, dtype=np.float64)
-wrk = np.zeros(100, dtype=np.float64)
-iwrk = np.zeros(20, dtype=np.int32)
+lwrk = 1 * (3 + 1) + 1 * (3 + 1)  # mx*(kx+1) + my*(ky+1)
+wrk = np.zeros(lwrk, dtype=np.float64)
+kwrk = 1 + 1  # mx + my
+iwrk = np.zeros(kwrk, dtype=np.int32)
 ier = np.zeros(1, dtype=np.int32)
 
 bispev_func(
@@ -101,8 +103,8 @@ bispev_func(
     xi.ctypes.data_as(ctypes.POINTER(ctypes.c_double)), 1,
     yi.ctypes.data_as(ctypes.POINTER(ctypes.c_double)), 1,
     z_out.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
-    wrk.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
-    iwrk.ctypes.data_as(ctypes.POINTER(ctypes.c_int32)),
+    wrk.ctypes.data_as(ctypes.POINTER(ctypes.c_double)), lwrk,
+    iwrk.ctypes.data_as(ctypes.POINTER(ctypes.c_int32)), kwrk,
     ier.ctypes.data_as(ctypes.POINTER(ctypes.c_int32))
 )
 print(f"f(0.5, 0.5) = {z_out[0]}")
