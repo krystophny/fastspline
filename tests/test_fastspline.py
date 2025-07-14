@@ -7,7 +7,10 @@ import numpy as np
 import pytest
 import warnings
 from scipy.interpolate import bisplrep, bisplev
-from scipy.interpolate import dfitpack
+try:
+    from scipy.interpolate import dfitpack
+except (ImportError, AttributeError):
+    dfitpack = None
 
 
 def test_bivariate_spline_basic():
@@ -54,6 +57,7 @@ def test_cfunc_bispev_consistency():
     np.testing.assert_allclose(z_scipy, z_scipy2, rtol=1e-15, atol=1e-15)
 
 
+@pytest.mark.skipif(dfitpack is None, reason="dfitpack not available in this scipy version")
 def test_derivatives_parder():
     """Test parder derivative functionality for exact matching."""
     # Create test data - quadratic function z = x^2 + y^2
