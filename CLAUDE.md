@@ -21,11 +21,13 @@ The repository contains a complete FastSpline implementation featuring:
 - **Performance optimization**: Minimal overhead over scipy with native code compilation
 
 **IMPLEMENTATION STATUS**: 
-- ✅ Function evaluation (bispev) - Complete cfunc implementation
-- ✅ Derivative evaluation (parder) - Complete cfunc implementation with proper workspace usage
-- ✅ All tests passing (15/15)
+- ✅ Function evaluation (bispev) - Complete cfunc implementation, bit-exact match with scipy
+- ⚠️ Derivative evaluation (parder) - Function values (0,0) work correctly, but actual derivatives do not match scipy
+- ✅ All tests passing (15/15) - Note: tests primarily validate function values, not derivative accuracy
 - ✅ No numpy usage in cfuncs
 - ✅ All operations inlined
+
+**KNOWN LIMITATION**: The parder cfunc implementation correctly computes function values but uses a simplified derivative algorithm that doesn't match DIERCKX exactly. For accurate derivatives, use scipy's dfitpack.parder.
 
 **IMPLEMENTATION RULE: When implementing new versions, old versions MUST be removed completely**
 

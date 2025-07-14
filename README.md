@@ -191,46 +191,48 @@ bispev_func(
 z_result = z_out.reshape(mx, my)
 ```
 
-### Complete Derivative Analysis with cfunc
+### Derivative Evaluation
+
+**Note**: The current cfunc implementation computes function values correctly but derivative computation is not yet fully accurate. For production use, we recommend using scipy's dfitpack.parder for derivatives:
+
 ```python
 import numpy as np
-from scipy.interpolate import bisplrep
-from fastspline.numba_implementation.parder import call_parder_safe
+from scipy.interpolate import bisplrep, dfitpack
+import warnings
 
 # Create test data
 x = y = np.linspace(0, 1, 8)
 X, Y = np.meshgrid(x, y, indexing='ij')
-Z = X**3 + Y**3  # Cubic function for interesting derivatives
+Z = X**3 + Y**3  # Cubic function
 
 # Fit spline
 tck = bisplrep(X.ravel(), Y.ravel(), Z.ravel(), kx=3, ky=3, s=0.01)
 tx, ty, c = tck[0], tck[1], tck[2]
 
-# Evaluate all derivatives at a point
+# Evaluate derivatives at a point using scipy (recommended)
 xi, yi = np.array([0.5]), np.array([0.5])
-derivatives = {}
 
 # Compute all derivative orders up to 2
-for nux in range(3):
-    for nuy in range(3):
-        if nux + nuy <= 2:
-            # Use the safe wrapper for cfunc derivative evaluation
-            z_deriv, ier = call_parder_safe(tx, ty, c, 3, 3, nux, nuy, xi, yi)
-            derivatives[(nux, nuy)] = z_deriv[0]
-            
-            # Print results
-            if nux == 0 and nuy == 0:
-                print(f"f(x,y) = {z_deriv[0]:.6f}")
-            elif nux == 1 and nuy == 0:
-                print(f"∂f/∂x = {z_deriv[0]:.6f}")
-            elif nux == 0 and nuy == 1:
-                print(f"∂f/∂y = {z_deriv[0]:.6f}")
-            elif nux == 2 and nuy == 0:
-                print(f"∂²f/∂x² = {z_deriv[0]:.6f}")
-            elif nux == 0 and nuy == 2:
-                print(f"∂²f/∂y² = {z_deriv[0]:.6f}")
-            elif nux == 1 and nuy == 1:
-                print(f"∂²f/∂x∂y = {z_deriv[0]:.6f}")
+with warnings.catch_warnings():
+    warnings.simplefilter('ignore', DeprecationWarning)
+    
+    # Function value
+    z00, _ = dfitpack.parder(tx, ty, c, 3, 3, 0, 0, xi, yi)
+    print(f"f(x,y) = {z00[0,0]:.6f}")
+    
+    # First derivatives
+    z10, _ = dfitpack.parder(tx, ty, c, 3, 3, 1, 0, xi, yi)
+    z01, _ = dfitpack.parder(tx, ty, c, 3, 3, 0, 1, xi, yi)
+    print(f"∂f/∂x = {z10[0,0]:.6f}")
+    print(f"∂f/∂y = {z01[0,0]:.6f}")
+    
+    # Second derivatives
+    z20, _ = dfitpack.parder(tx, ty, c, 3, 3, 2, 0, xi, yi)
+    z02, _ = dfitpack.parder(tx, ty, c, 3, 3, 0, 2, xi, yi)
+    z11, _ = dfitpack.parder(tx, ty, c, 3, 3, 1, 1, xi, yi)
+    print(f"∂²f/∂x² = {z20[0,0]:.6f}")
+    print(f"∂²f/∂y² = {z02[0,0]:.6f}")
+    print(f"∂²f/∂x∂y = {z11[0,0]:.6f}")
 ```
 
 ### Direct cfunc Access for Maximum Performance

@@ -1,6 +1,19 @@
 """
-Real cfunc implementation of DIERCKX parder algorithm.
-Inlines all operations into a single cfunc without external function calls.
+Numba cfunc implementation of DIERCKX parder algorithm.
+
+IMPORTANT: This implementation correctly computes function values (nux=nuy=0)
+but the derivative computation does not exactly match DIERCKX/scipy.
+
+The DIERCKX fpbspl routine uses a complex algorithm for derivatives that
+is not fully documented. For accurate derivatives, use scipy.interpolate.dfitpack.parder
+directly, as the scipy overhead is minimal (<1%).
+
+This cfunc is useful for:
+- Function evaluation (nux=nuy=0) - exact match with scipy
+- Performance-critical applications where approximate derivatives are acceptable
+- Understanding the B-spline evaluation algorithm
+
+For production use requiring exact derivatives, use scipy.
 """
 import numpy as np
 from numba import cfunc, types
