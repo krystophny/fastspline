@@ -4,17 +4,36 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-FastSpline is a high-performance spline interpolation project focused on optimizing DIERCKX Fortran library functions for Python. The project explores various optimization strategies for bivariate spline interpolation (`bisplrep`/`bisplev`) including direct f2py wrapper calls, Numba cfunc implementations, and minimal overhead interfaces.
+FastSpline is a high-performance spline interpolation project focused on optimizing DIERCKX Fortran library functions for Python. The project provides a single, clean Numba cfunc implementation of bivariate spline interpolation with derivative support that exactly matches scipy's behavior.
 
 ## Current State
 
+**CRITICAL REQUIREMENT: ALL TESTS MUST PASS**
+
 The repository contains a complete fastspline implementation with:
-- Working Numba cfunc implementations for bivariate spline interpolation
-- Comprehensive test suite with 15 passing tests
-- Derivative support through scipy.interpolate.dfitpack.parder
+- Single inline Numba cfunc implementation for bivariate spline derivatives (`parder.py`)
+- Comprehensive test suite with 14 passing tests, 1 skipped (15 total)
+- Full derivative support matching scipy.interpolate.dfitpack.parder exactly
 - Performance comparison and benchmarking scripts
 
+**IMPLEMENTATION RULE: When implementing new versions, old versions MUST be removed completely**
+
 ## Key Commands
+
+### Running Tests (MUST ALWAYS PASS)
+```bash
+# Run all tests with pytest - ALL MUST PASS
+python -m pytest tests/ -v
+
+# Run specific derivative accuracy tests
+python -m pytest tests/test_derivative_accuracy.py -v
+
+# Run CI tests
+python -m pytest tests/test_ci.py -v
+
+# Run fastspline tests
+python -m pytest tests/test_fastspline.py -v
+```
 
 ### Running Performance Comparisons
 ```bash
@@ -28,46 +47,61 @@ python compare_scipy_f2py_direct.py
 python compare_scipy_f2py_performance_final.py
 ```
 
-### Running Tests
+### Testing Individual Components
 ```bash
-# Run all tests
-python -m pytest tests/ -v
-
-# Run specific test files
-python -m pytest tests/test_derivative_accuracy.py -v
-python -m pytest tests/test_fastspline.py -v
-python -m pytest tests/test_ci.py -v
+# Test parder implementation directly
+python fastspline/numba_implementation/parder.py
 ```
 
 ## Architecture and Implementation Notes
 
+### Implementation Requirements
+
+**CRITICAL: ALL implementations must:**
+- Use only cfunc decorators (no njit functions)
+- Inline all operations within a single cfunc
+- Validate against scipy exactly (exact floating-point matches)
+- Pass ALL tests in the test suite
+- Remove old implementations when creating new ones
+
 ### Performance Optimization Approaches
 
-1. **Direct f2py Wrappers**: Bypassing scipy's Python interface to call Fortran routines directly
-2. **Numba cfunc**: JIT-compiled implementations matching DIERCKX algorithms exactly
+1. **Single cfunc Implementation**: All operations inlined into one cfunc without external function calls
+2. **Exact scipy Matching**: Bit-exact compatibility with scipy.interpolate.dfitpack.parder
 3. **Pre-allocated Arrays**: Reducing memory allocation overhead in hot paths
-4. **Minimal Wrappers**: Stripping validation and conversion overhead
+4. **Minimal Overhead**: Direct cfunc calls without Python wrapper overhead
 
 ### Key Technical Details
 
-- The project targets exact floating-point accuracy matching DIERCKX/scipy
-- Performance comparisons focus on scattered data interpolation use cases
-- Smoothing parameter `s` significantly impacts performance (s=0 for exact interpolation is slowest)
-- The scipy interface overhead is typically minimal (<1%) for most use cases
+- The project targets exact floating-point accuracy matching scipy
+- All derivative computations must validate against scipy.interpolate.dfitpack.parder
+- Implementation is in `fastspline/numba_implementation/parder.py` as a single cfunc
+- Tests verify exact matches for all derivative orders: (0,0), (1,0), (0,1), (2,0), (0,2), (1,1)
 
 ### Current File Structure
 
 The implementation includes:
-- `fastspline/numba_implementation/`: Numba cfunc implementations including working parder_correct.py
-- `src/fortran/`: Fortran source files with compiled object files
-- `src/c/`: C wrapper implementations
-- `tests/`: Comprehensive test suite with derivative accuracy validation
+- `fastspline/numba_implementation/parder.py`: Single cfunc implementation with derivative support
+- `tests/`: Comprehensive test suite that MUST all pass
 - Performance comparison scripts in root directory
 
 ## Development Considerations
 
-When working with spline interpolation performance:
+### Testing Requirements
+- ALL tests must pass: `python -m pytest tests/ -v`
+- No skipped tests except for missing dependencies
+- Derivative accuracy must be exact (< 1e-14 difference from scipy)
+
+### Implementation Standards
+- Use only cfunc decorators, no njit functions
+- Inline all operations within a single function
+- Validate against scipy/DIERCKX exactly
+- Remove old implementations when creating new ones
+- Test with pytest, not custom test runners
+
+### Performance Optimization
 - Use automatic smoothing (`s=len(data)`) rather than exact interpolation (`s=0`) for large datasets
 - scipy's bisplrep can produce warnings about insufficient knots - these indicate the need for smoothing
-- Direct f2py access patterns have changed across scipy versions
 - Performance gains from optimization are most noticeable for repeated evaluations on small grids
+
+**REMEMBER: TESTS MUST PASS - NO EXCEPTIONS**
