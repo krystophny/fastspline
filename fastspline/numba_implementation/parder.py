@@ -30,7 +30,7 @@ import ctypes
 ), nopython=True)
 def parder_cfunc(tx, nx, ty, ny, c, kx, ky, nux, nuy, x, mx, y, my, z, wrk, lwrk, iwrk, kwrk, ier):
     """
-    Real implementation of DIERCKX parder algorithm.
+    Real implementation of DIERCKX parder algorithm following the exact structure.
     """
     # Input validation
     ier[0] = 10
@@ -49,227 +49,133 @@ def parder_cfunc(tx, nx, ty, ny, c, kx, ky, nux, nuy, x, mx, y, my, z, wrk, lwrk
     
     ier[0] = 0
     
-    # Main computation following original DIERCKX parder algorithm structure
+    # Constants
     kx1 = kx + 1
     ky1 = ky + 1
     nkx1 = nx - kx1
     nky1 = ny - ky1
     
     m = 0
-    # Follow the EXACT structure of parder.f - compute x basis for all points first
+    
+    # Following exact DIERCKX parder structure
     for i in range(mx):
-        l = kx1
-        l1 = l + 1
-        if nux == 0:
-            ak = x[i]
-            tb = tx[kx1-1]  # tx(kx1) in Fortran
-            te = tx[nkx1]   # tx(nkx1+1) in Fortran  
-            if ak < tb:
-                ak = tb
-            if ak > te:
-                ak = te
-        else:
-            ak = x[i]
-            nkx1_temp = nx - nux
-            tb = tx[nux]     # tx(nux+1) in Fortran
-            te = tx[nkx1_temp-1]  # tx(nkx1) in Fortran
-            if ak < tb:
-                ak = tb
-            if ak > te:
-                ak = te
-            
-        # Search for knot interval following DIERCKX exactly
-        if nux == 0:
-            l = kx
-            l1 = l + 1
-            while ak >= tx[l1] and l < nkx1:
-                l = l1
-                l1 = l + 1
-        else:
-            l = nux
-            l1 = l + 1
-            while ak >= tx[l1] and l < (nx - nux):
-                l = l1 
-                l1 = l + 1
-            if ak == tx[l1]:
-                l = l1
+        # Compute B-spline basis functions in x direction with derivatives
+        ak_x = x[i]
         
-        # Inline fpbspl for x 
-        if nux == 0:
-            iwx = i * kx1
-        else:
-            iwx = i * (kx1 - nux)
-            
+        # Find knot interval for x
+        l_x = kx
+        while l_x < nkx1 and ak_x >= tx[l_x + 1]:
+            l_x += 1
+        
+        # Compute fpbspl(tx, nx, kx, ak_x, nux, l_x, wrk_x) - inline
+        iwx = i * (kx1 - nux)
+        
+        # fpbspl_with_derivatives inline for x direction
         wrk[iwx] = 1.0
         
-        # B-spline computation
-        for j in range(1, kx + 1):
-            for ii in range(j):
-                wrk[lwrk - 20 + ii] = wrk[iwx + ii]
+        # Cox-de Boor recursion for x
+        for j_x in range(1, kx + 1):
+            # Save previous values
+            for ii in range(j_x):
+                wrk[iwx + 20 + ii] = wrk[iwx + ii]
             
             wrk[iwx] = 0.0
             
-            for ii in range(1, j + 1):
-                li = l + ii
-                lj = li - j
+            for ii in range(1, j_x + 1):
+                li = l_x + ii
+                lj = li - j_x
                 
                 if li < nx and lj >= 0 and tx[li] != tx[lj]:
-                    f = wrk[lwrk - 20 + ii - 1] / (tx[li] - tx[lj])
-                    wrk[iwx + ii - 1] = wrk[iwx + ii - 1] + f * (tx[li] - ak)
-                    wrk[iwx + ii] = f * (ak - tx[lj])
+                    f = wrk[iwx + 20 + ii - 1] / (tx[li] - tx[lj])
+                    wrk[iwx + ii - 1] += f * (tx[li] - ak_x)
+                    wrk[iwx + ii] = f * (ak_x - tx[lj])
                 else:
                     wrk[iwx + ii] = 0.0
         
         # Apply x derivatives
-        if nux > 0:
-            for deriv in range(nux):
-                current_k = kx - deriv
+        for deriv in range(nux):
+            curr_k = kx - deriv
+            
+            # Save current values
+            for ii in range(curr_k + 1):
+                wrk[iwx + 20 + ii] = wrk[iwx + ii]
+            
+            # Apply derivative formula
+            for ii in range(curr_k):
+                li = l_x + ii + 1
+                lj = li - curr_k
+                
+                if li < nx and lj >= 0 and tx[li] != tx[lj]:
+                    factor = float(curr_k) / (tx[li] - tx[lj])
+                    wrk[iwx + ii] = factor * (wrk[iwx + 20 + ii + 1] - wrk[iwx + 20 + ii])
+                else:
+                    wrk[iwx + ii] = 0.0
+        
+        for j in range(my):
+            # Compute B-spline basis functions in y direction with derivatives
+            ak_y = y[j]
+            
+            # Find knot interval for y
+            l_y = ky
+            while l_y < nky1 and ak_y >= ty[l_y + 1]:
+                l_y += 1
+            
+            # Compute fpbspl(ty, ny, ky, ak_y, nuy, l_y, wrk_y) - inline
+            iwy = (kx1 - nux) * mx + j * (ky1 - nuy)
+            
+            # fpbspl_with_derivatives inline for y direction
+            wrk[iwy] = 1.0
+            
+            # Cox-de Boor recursion for y
+            for j_y in range(1, ky + 1):
+                # Save previous values
+                for ii in range(j_y):
+                    wrk[iwy + 20 + ii] = wrk[iwy + ii]
+                
+                wrk[iwy] = 0.0
+                
+                for ii in range(1, j_y + 1):
+                    li = l_y + ii
+                    lj = li - j_y
+                    
+                    if li < ny and lj >= 0 and ty[li] != ty[lj]:
+                        f = wrk[iwy + 20 + ii - 1] / (ty[li] - ty[lj])
+                        wrk[iwy + ii - 1] += f * (ty[li] - ak_y)
+                        wrk[iwy + ii] = f * (ak_y - ty[lj])
+                    else:
+                        wrk[iwy + ii] = 0.0
+            
+            # Apply y derivatives
+            for deriv in range(nuy):
+                curr_k = ky - deriv
                 
                 # Save current values
-                for ii in range(current_k + 1):
-                    wrk[lwrk - 20 + ii] = wrk[iwx + ii]
+                for ii in range(curr_k + 1):
+                    wrk[iwy + 20 + ii] = wrk[iwy + ii]
                 
-                # Apply derivative recurrence
-                for ii in range(current_k):
-                    li = l + ii + 1
-                    lj = li - current_k
+                # Apply derivative formula
+                for ii in range(curr_k):
+                    li = l_y + ii + 1
+                    lj = li - curr_k
                     
-                    if li < nx and lj >= 0 and tx[li] != tx[lj]:
-                        factor = float(current_k) / (tx[li] - tx[lj])
-                        wrk[iwx + ii] = factor * (wrk[lwrk - 20 + ii + 1] - wrk[lwrk - 20 + ii])
+                    if li < ny and lj >= 0 and ty[li] != ty[lj]:
+                        factor = float(curr_k) / (ty[li] - ty[lj])
+                        wrk[iwy + ii] = factor * (wrk[iwy + 20 + ii + 1] - wrk[iwy + 20 + ii])
                     else:
-                        wrk[iwx + ii] = 0.0
-        
-        if nux == 0:
-            iwrk[i] = l - kx
-        else:
-            iwrk[i] = l - nux
-    
-    # Now the main computation loops
-    for i in range(mx):
-        if nuy == 0:
-            # Case 1: nuy=0 (lines 130-200 in parder.f)
-            for j in range(my):
-                l = ky1
-                l1 = l + 1
-                ak = y[j]
-                if ak < ty[ky1-1] or ak > ty[nky1]:
-                    ier[0] = 10
-                    return
-                    
-                # Search for knot interval
-                l = ky
-                l1 = l + 1
-                while ak >= ty[l1] and l < nky1:
-                    l = l1
-                    l1 = l + 1
-                if ak == ty[l1]:
-                    l = l1
-                    
-                # Y basis computation
-                iwy = mx * (kx1 - nux) + j * ky1
-                wrk[iwy] = 1.0
-                
-                for jj in range(1, ky + 1):
-                    for ii in range(jj):
-                        wrk[lwrk - 20 + ii] = wrk[iwy + ii]
-                    
-                    wrk[iwy] = 0.0
-                    
-                    for ii in range(1, jj + 1):
-                        li = l + ii
-                        lj = li - jj
-                        
-                        if li < ny and lj >= 0 and ty[li] != ty[lj]:
-                            f = wrk[lwrk - 20 + ii - 1] / (ty[li] - ty[lj])
-                            wrk[iwy + ii - 1] = wrk[iwy + ii - 1] + f * (ty[li] - ak)
-                            wrk[iwy + ii] = f * (ak - ty[lj])
-                        else:
-                            wrk[iwy + ii] = 0.0
-                
-                iwrk[mx + j] = l - ky
-                m += 1
-                z[m-1] = 0.0
-                l2 = iwrk[i] * nky1 + iwrk[mx + j]
-                
-                for lx in range(kx1 - nux):
-                    l1 = l2
-                    for ly in range(ky1):
-                        l1 += 1
-                        z[m-1] += c[l1 - 1] * wrk[i * (kx1 - nux) + lx] * wrk[iwy + ly]
-                    l2 += nky1
-        else:
-            # Case 2: nuy>0 (lines 100-120 in parder.f)
-            for j in range(my):
-                l = ky1
-                l1 = l + 1
-                ak = y[j]
-                nky1_temp = ny - nuy
-                tb = ty[nuy]     # ty(nuy+1) in Fortran
-                te = ty[nky1_temp-1]  # ty(nky1) in Fortran
-                if ak < tb:
-                    ak = tb
-                if ak > te:
-                    ak = te
-                    
-                # Search for knot interval
-                l = nuy
-                l1 = l + 1
-                while ak >= ty[l1] and l < nky1_temp:
-                    l = l1
-                    l1 = l + 1
-                if ak == ty[l1]:
-                    l = l1
-                    
-                # Y basis computation with derivatives
-                iwy = mx * (kx1 - nux) + j * (ky1 - nuy)
-                wrk[iwy] = 1.0
-                
-                for jj in range(1, ky + 1):
-                    for ii in range(jj):
-                        wrk[lwrk - 20 + ii] = wrk[iwy + ii]
-                    
-                    wrk[iwy] = 0.0
-                    
-                    for ii in range(1, jj + 1):
-                        li = l + ii
-                        lj = li - jj
-                        
-                        if li < ny and lj >= 0 and ty[li] != ty[lj]:
-                            f = wrk[lwrk - 20 + ii - 1] / (ty[li] - ty[lj])
-                            wrk[iwy + ii - 1] = wrk[iwy + ii - 1] + f * (ty[li] - ak)
-                            wrk[iwy + ii] = f * (ak - ty[lj])
-                        else:
-                            wrk[iwy + ii] = 0.0
-                
-                # Apply y derivatives
-                for deriv in range(nuy):
-                    current_k = ky - deriv
-                    
-                    for ii in range(current_k + 1):
-                        wrk[lwrk - 20 + ii] = wrk[iwy + ii]
-                    
-                    for ii in range(current_k):
-                        li = l + ii + 1
-                        lj = li - current_k
-                        
-                        if li < ny and lj >= 0 and ty[li] != ty[lj]:
-                            factor = float(current_k) / (ty[li] - ty[lj])
-                            wrk[iwy + ii] = factor * (wrk[lwrk - 20 + ii + 1] - wrk[lwrk - 20 + ii])
-                        else:
-                            wrk[iwy + ii] = 0.0
-
-                iwrk[mx + j] = l - nuy
-                m += 1
-                z[m-1] = 0.0
-                l2 = l - nuy  # Direct from Fortran line 161: l2 = l-nuy
-                
-                for lx in range(kx1 - nux):
-                    l1 = l2
-                    for ly in range(ky1 - nuy):
-                        l1 += 1
-                        z[m-1] += c[l1 - 1] * wrk[i * (kx1 - nux) + lx] * wrk[iwy + ly]
-                    l2 += (ny - ky1)  # From line 167: l2 = l2+nky1
+                        wrk[iwy + ii] = 0.0
+            
+            # Compute the partial derivative using tensor product
+            z[m] = 0.0
+            l2 = (l_x - kx) * nky1 + (l_y - ky)
+            
+            for lx in range(kx1 - nux):
+                l1 = l2
+                for ly in range(ky1 - nuy):
+                    z[m] += c[l1] * wrk[iwx + lx] * wrk[iwy + ly]
+                    l1 += 1
+                l2 += nky1
+            
+            m += 1
 
 
 
@@ -281,12 +187,72 @@ parder_cfunc_address = parder_cfunc.address
 parder_correct_cfunc_address = parder_cfunc.address
 
 
+def call_parder_safe(tx, ty, c, kx, ky, nux, nuy, xi, yi):
+    """Safe wrapper for parder cfunc that manages memory properly"""
+    nx, ny = len(tx), len(ty)
+    mx, my = len(xi), len(yi)
+    
+    # Ensure all arrays are contiguous and properly typed
+    tx = np.ascontiguousarray(tx, dtype=np.float64)
+    ty = np.ascontiguousarray(ty, dtype=np.float64)
+    c = np.ascontiguousarray(c, dtype=np.float64)
+    xi = np.ascontiguousarray(xi, dtype=np.float64)
+    yi = np.ascontiguousarray(yi, dtype=np.float64)
+    
+    # Pre-allocate output and workspace with proper sizing
+    z_cfunc = np.zeros(mx * my, dtype=np.float64)
+    lwrk = max(100, (kx + 1 - nux) * mx + (ky + 1 - nuy) * my + 50)  # Extra safety margin
+    wrk = np.zeros(lwrk, dtype=np.float64)
+    iwrk = np.zeros(max(50, mx + my + 10), dtype=np.int32)  # Extra safety margin
+    ier = np.zeros(1, dtype=np.int32)
+    
+    # Create ctypes function - do this once to avoid repeated creation
+    parder_func = ctypes.CFUNCTYPE(None, 
+                                   ctypes.POINTER(ctypes.c_double),
+                                   ctypes.c_int32,
+                                   ctypes.POINTER(ctypes.c_double),
+                                   ctypes.c_int32,
+                                   ctypes.POINTER(ctypes.c_double),
+                                   ctypes.c_int32,
+                                   ctypes.c_int32,
+                                   ctypes.c_int32,
+                                   ctypes.c_int32,
+                                   ctypes.POINTER(ctypes.c_double),
+                                   ctypes.c_int32,
+                                   ctypes.POINTER(ctypes.c_double),
+                                   ctypes.c_int32,
+                                   ctypes.POINTER(ctypes.c_double),
+                                   ctypes.POINTER(ctypes.c_double),
+                                   ctypes.c_int32,
+                                   ctypes.POINTER(ctypes.c_int32),
+                                   ctypes.c_int32,
+                                   ctypes.POINTER(ctypes.c_int32)
+                                   )(parder_cfunc_address)
+    
+    # Call the function
+    parder_func(tx.ctypes.data_as(ctypes.POINTER(ctypes.c_double)), nx,
+               ty.ctypes.data_as(ctypes.POINTER(ctypes.c_double)), ny,
+               c.ctypes.data_as(ctypes.POINTER(ctypes.c_double)), kx, ky, nux, nuy,
+               xi.ctypes.data_as(ctypes.POINTER(ctypes.c_double)), mx,
+               yi.ctypes.data_as(ctypes.POINTER(ctypes.c_double)), my,
+               z_cfunc.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
+               wrk.ctypes.data_as(ctypes.POINTER(ctypes.c_double)), lwrk,
+               iwrk.ctypes.data_as(ctypes.POINTER(ctypes.c_int32)), len(iwrk),
+               ier.ctypes.data_as(ctypes.POINTER(ctypes.c_int32)))
+    
+    # Clean up references before return to help GC
+    del parder_func, wrk, iwrk
+    
+    return z_cfunc, ier[0]
+
+
 def test_parder():
     """Test the parder implementation against scipy"""
     print("=== TESTING REAL PARDER IMPLEMENTATION ===")
     
     from scipy.interpolate import bisplrep, dfitpack
     import warnings
+    import gc
     
     # Test with multiple different functions and points
     test_cases = [
@@ -341,52 +307,9 @@ def test_parder():
                     warnings.simplefilter('ignore', DeprecationWarning)
                     z_scipy, ier_scipy = dfitpack.parder(tx, ty, c, 3, 3, nux, nuy, xi, yi)
                 
-                # Test cfunc
+                # Test cfunc with safe wrapper
                 try:
-                    nx, ny = len(tx), len(ty)
-                    mx, my = len(xi), len(yi)
-                    
-                    c_arr = np.asarray(c, dtype=np.float64)
-                    z_cfunc = np.zeros(mx * my, dtype=np.float64)
-                    
-                    # Workspace
-                    lwrk = (3 + 1 - nux) * mx + (3 + 1 - nuy) * my
-                    wrk = np.zeros(lwrk, dtype=np.float64)
-                    iwrk = np.zeros(mx + my, dtype=np.int32)
-                    ier = np.zeros(1, dtype=np.int32)
-                    
-                    # Call cfunc
-                    parder_func = ctypes.CFUNCTYPE(None, 
-                                                   ctypes.POINTER(ctypes.c_double),
-                                                   ctypes.c_int32,
-                                                   ctypes.POINTER(ctypes.c_double),
-                                                   ctypes.c_int32,
-                                                   ctypes.POINTER(ctypes.c_double),
-                                                   ctypes.c_int32,
-                                                   ctypes.c_int32,
-                                                   ctypes.c_int32,
-                                                   ctypes.c_int32,
-                                                   ctypes.POINTER(ctypes.c_double),
-                                                   ctypes.c_int32,
-                                                   ctypes.POINTER(ctypes.c_double),
-                                                   ctypes.c_int32,
-                                                   ctypes.POINTER(ctypes.c_double),
-                                                   ctypes.POINTER(ctypes.c_double),
-                                                   ctypes.c_int32,
-                                                   ctypes.POINTER(ctypes.c_int32),
-                                                   ctypes.c_int32,
-                                                   ctypes.POINTER(ctypes.c_int32)
-                                                   )(parder_cfunc_address)
-                    
-                    parder_func(tx.ctypes.data_as(ctypes.POINTER(ctypes.c_double)), nx,
-                               ty.ctypes.data_as(ctypes.POINTER(ctypes.c_double)), ny,
-                               c_arr.ctypes.data_as(ctypes.POINTER(ctypes.c_double)), 3, 3, nux, nuy,
-                               xi.ctypes.data_as(ctypes.POINTER(ctypes.c_double)), mx,
-                               yi.ctypes.data_as(ctypes.POINTER(ctypes.c_double)), my,
-                               z_cfunc.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
-                               wrk.ctypes.data_as(ctypes.POINTER(ctypes.c_double)), lwrk,
-                               iwrk.ctypes.data_as(ctypes.POINTER(ctypes.c_int32)), mx + my,
-                               ier.ctypes.data_as(ctypes.POINTER(ctypes.c_int32)))
+                    z_cfunc, ier_cfunc = call_parder_safe(tx, ty, c, 3, 3, nux, nuy, xi, yi)
                     
                     diff = abs(z_scipy[0,0] - z_cfunc[0])
                     
@@ -398,6 +321,9 @@ def test_parder():
                         
                 except Exception as e:
                     print(f"  ({nux},{nuy}): ✗ ERROR: {e}")
+                
+                # Force garbage collection after each test
+                gc.collect()
     
     print(f"\n=== SUMMARY ===")
     print(f"Passed: {passed_tests}/{total_tests} tests")

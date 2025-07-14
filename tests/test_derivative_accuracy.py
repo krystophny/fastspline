@@ -168,41 +168,12 @@ def test_cfunc_derivative_matching():
         iwrk = np.zeros(mx + my, dtype=np.int32)
         ier = np.zeros(1, dtype=np.int32)
         
-        # Call cfunc
-        parder_func = ctypes.CFUNCTYPE(None, 
-                                       ctypes.POINTER(ctypes.c_double),
-                                       ctypes.c_int32,
-                                       ctypes.POINTER(ctypes.c_double),
-                                       ctypes.c_int32,
-                                       ctypes.POINTER(ctypes.c_double),
-                                       ctypes.c_int32,
-                                       ctypes.c_int32,
-                                       ctypes.c_int32,
-                                       ctypes.c_int32,
-                                       ctypes.POINTER(ctypes.c_double),
-                                       ctypes.c_int32,
-                                       ctypes.POINTER(ctypes.c_double),
-                                       ctypes.c_int32,
-                                       ctypes.POINTER(ctypes.c_double),
-                                       ctypes.POINTER(ctypes.c_double),
-                                       ctypes.c_int32,
-                                       ctypes.POINTER(ctypes.c_int32),
-                                       ctypes.c_int32,
-                                       ctypes.POINTER(ctypes.c_int32)
-                                       )(parder_correct_cfunc_address)
-        
-        parder_func(tx.ctypes.data_as(ctypes.POINTER(ctypes.c_double)), nx,
-                   ty.ctypes.data_as(ctypes.POINTER(ctypes.c_double)), ny,
-                   c_arr.ctypes.data_as(ctypes.POINTER(ctypes.c_double)), 3, 3, 0, 0,
-                   xi.ctypes.data_as(ctypes.POINTER(ctypes.c_double)), mx,
-                   yi.ctypes.data_as(ctypes.POINTER(ctypes.c_double)), my,
-                   z_cfunc.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
-                   wrk.ctypes.data_as(ctypes.POINTER(ctypes.c_double)), lwrk,
-                   iwrk.ctypes.data_as(ctypes.POINTER(ctypes.c_int32)), mx + my,
-                   ier.ctypes.data_as(ctypes.POINTER(ctypes.c_int32)))
+        # Use safe wrapper instead of direct cfunc call
+        from parder import call_parder_safe
+        z_cfunc, ier_cfunc = call_parder_safe(tx, ty, c_arr, 3, 3, 0, 0, xi, yi)
         
         # Check function value matches
-        assert ier[0] == 0, f"cfunc failed with ier={ier[0]}"
+        assert ier_cfunc == 0, f"cfunc failed with ier={ier_cfunc}"
         assert abs(z_scipy[0,0] - z_cfunc[0]) < 1e-10, f"Function value mismatch: {z_scipy[0,0]} vs {z_cfunc[0]}"
         
     except ImportError:
