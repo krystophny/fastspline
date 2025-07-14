@@ -8,6 +8,9 @@ import warnings
 from scipy.interpolate import bisplrep
 try:
     from scipy.interpolate import dfitpack
+    # Check if parder is available
+    if not hasattr(dfitpack, 'parder'):
+        dfitpack = None
 except (ImportError, AttributeError):
     # dfitpack may not be available in newer scipy versions
     dfitpack = None

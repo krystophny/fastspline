@@ -52,6 +52,8 @@ def test_derivatives_available():
     from scipy.interpolate import bisplrep
     try:
         from scipy.interpolate import dfitpack
+        if not hasattr(dfitpack, 'parder'):
+            pytest.skip("dfitpack.parder not available in this scipy version")
     except (ImportError, AttributeError):
         pytest.skip("dfitpack not available in this scipy version")
     
