@@ -5,6 +5,7 @@ Exact implementation following DIERCKX parder.f line by line.
 import numpy as np
 from numba import cfunc, types
 import ctypes
+from fpbspl_numba import fpbspl_cfunc
 
 
 @cfunc(types.void(
@@ -101,32 +102,13 @@ def parder_cfunc(tx, nx, ty, ny, c, kx, ky, nux, nuy, x, mx, y, my, z, wrk, lwrk
             if ak == tx[l1-1]:
                 l = l1
             
-            # Inline fpbspl algorithm for standard evaluation
+            # Call fpbspl exactly like DIERCKX does for X direction
             iwx = i * (kx1 - nux)  # X basis functions workspace
-            
-            # Initialize h array: h[1] = 1.0 in Fortran
-            wrk[iwx] = 1.0
-            
-            # Main Cox-de Boor recursion
-            for j in range(1, kx + 1):
-                # Copy current h values to temporary storage (use end of workspace)
-                temp_start = mx * (kx1 - nux) + my * (ky1 - nuy)
-                for ii in range(j):
-                    wrk[temp_start + ii] = wrk[iwx + ii]
-                
-                wrk[iwx] = 0.0
-                
-                for ii in range(1, j + 1):
-                    li = l + ii  # Fortran li = l+ii
-                    lj = li - j  # Fortran lj = li-j
-                    
-                    # Convert to 0-based indexing for array access
-                    if tx[li-1] != tx[lj-1]:
-                        f = wrk[temp_start + ii - 1] / (tx[li-1] - tx[lj-1])
-                        wrk[iwx + ii - 1] = wrk[iwx + ii - 1] + f * (tx[li-1] - ak)
-                        wrk[iwx + ii] = f * (ak - tx[lj-1])
-                    else:
-                        wrk[iwx + ii] = 0.0
+            hx = np.zeros(kx1, dtype=np.float64)
+            fpbspl_cfunc(tx, nx, kx, ak, nux, l + 1, hx)  # Convert to 1-based
+            # Copy results to workspace
+            for ii in range(kx1):
+                wrk[iwx + ii] = hx[ii]
             
             # Store interval index for iwrk
             iwrk[i] = l - kx
@@ -155,32 +137,13 @@ def parder_cfunc(tx, nx, ty, ny, c, kx, ky, nux, nuy, x, mx, y, my, z, wrk, lwrk
                 if ak == ty[l1-1]:
                     l = l1
                 
-                # Inline fpbspl algorithm - Y workspace starts after X section
+                # Call fpbspl exactly like DIERCKX does for Y direction
                 iwy = mx * (kx1 - nux) + j * (ky1 - nuy)  # Y basis functions workspace
-                
-                # Initialize h array: h[1] = 1.0 in Fortran
-                wrk[iwy] = 1.0
-                
-                # Main Cox-de Boor recursion
-                for jj in range(1, ky + 1):
-                    # Copy current h values to temporary storage (use end of workspace)
-                    temp_start = mx * (kx1 - nux) + my * (ky1 - nuy)
-                    for ii in range(jj):
-                        wrk[temp_start + ii] = wrk[iwy + ii]
-                    
-                    wrk[iwy] = 0.0
-                    
-                    for ii in range(1, jj + 1):
-                        li = l + ii  # Fortran li = l+ii
-                        lj = li - jj  # Fortran lj = li-jj
-                        
-                        # Convert to 0-based indexing for array access
-                        if ty[li-1] != ty[lj-1]:
-                            f = wrk[temp_start + ii - 1] / (ty[li-1] - ty[lj-1])
-                            wrk[iwy + ii - 1] = wrk[iwy + ii - 1] + f * (ty[li-1] - ak)
-                            wrk[iwy + ii] = f * (ak - ty[lj-1])
-                        else:
-                            wrk[iwy + ii] = 0.0
+                hy = np.zeros(ky1, dtype=np.float64)
+                fpbspl_cfunc(ty, ny, ky, ak, 0, l + 1, hy)  # Convert to 1-based, always use 0 for function evaluation
+                # Copy results to workspace
+                for ii in range(ky1):
+                    wrk[iwy + ii] = hy[ii]
                 
                 # Compute the function value
                 iwrk[mx + j] = l - ky
