@@ -102,7 +102,7 @@ def parder_cfunc(tx, nx, ty, ny, c, kx, ky, nux, nuy, x, mx, y, my, z, wrk, lwrk
                 l = l1
             
             # Inline fpbspl algorithm for standard evaluation
-            iwx = i * kx1
+            iwx = i * (kx1 + 20)  # Allocate space for both basis and temp
             
             # Initialize h array: h[1] = 1.0 in Fortran
             wrk[iwx] = 1.0
@@ -111,7 +111,7 @@ def parder_cfunc(tx, nx, ty, ny, c, kx, ky, nux, nuy, x, mx, y, my, z, wrk, lwrk
             for j in range(1, kx + 1):
                 # Copy current h values to temporary storage
                 for ii in range(j):
-                    wrk[iwx + 20 + ii] = wrk[iwx + ii]
+                    wrk[iwx + kx1 + ii] = wrk[iwx + ii]
                 
                 wrk[iwx] = 0.0
                 
@@ -121,7 +121,7 @@ def parder_cfunc(tx, nx, ty, ny, c, kx, ky, nux, nuy, x, mx, y, my, z, wrk, lwrk
                     
                     # Convert to 0-based indexing for array access
                     if tx[li-1] != tx[lj-1]:
-                        f = wrk[iwx + 20 + ii - 1] / (tx[li-1] - tx[lj-1])
+                        f = wrk[iwx + kx1 + ii - 1] / (tx[li-1] - tx[lj-1])
                         wrk[iwx + ii - 1] = wrk[iwx + ii - 1] + f * (tx[li-1] - ak)
                         wrk[iwx + ii] = f * (ak - tx[lj-1])
                     else:
@@ -155,7 +155,7 @@ def parder_cfunc(tx, nx, ty, ny, c, kx, ky, nux, nuy, x, mx, y, my, z, wrk, lwrk
                     l = l1
                 
                 # Inline fpbspl algorithm
-                iwy = (kx1 - nux) * mx + j * ky1
+                iwy = (kx1 + 20) * mx + j * (ky1 + 20)  # Allocate space for both basis and temp
                 
                 # Initialize h array: h[1] = 1.0 in Fortran
                 wrk[iwy] = 1.0
@@ -164,7 +164,7 @@ def parder_cfunc(tx, nx, ty, ny, c, kx, ky, nux, nuy, x, mx, y, my, z, wrk, lwrk
                 for jj in range(1, ky + 1):
                     # Copy current h values to temporary storage
                     for ii in range(jj):
-                        wrk[iwy + 20 + ii] = wrk[iwy + ii]
+                        wrk[iwy + ky1 + ii] = wrk[iwy + ii]
                     
                     wrk[iwy] = 0.0
                     
@@ -174,7 +174,7 @@ def parder_cfunc(tx, nx, ty, ny, c, kx, ky, nux, nuy, x, mx, y, my, z, wrk, lwrk
                         
                         # Convert to 0-based indexing for array access
                         if ty[li-1] != ty[lj-1]:
-                            f = wrk[iwy + 20 + ii - 1] / (ty[li-1] - ty[lj-1])
+                            f = wrk[iwy + ky1 + ii - 1] / (ty[li-1] - ty[lj-1])
                             wrk[iwy + ii - 1] = wrk[iwy + ii - 1] + f * (ty[li-1] - ak)
                             wrk[iwy + ii] = f * (ak - ty[lj-1])
                         else:
@@ -218,8 +218,8 @@ def call_parder_safe(tx, ty, c, kx, ky, nux, nuy, x, y):
     # Allocate output arrays
     z = np.zeros(mx * my, dtype=np.float64)
     
-    # Allocate workspace arrays with sufficient space for temp storage
-    lwrk = (kx + 1 - nux) * mx + (ky + 1 - nuy) * my + 50  # Extra space for temp
+    # Allocate workspace arrays with space for temp storage
+    lwrk = (kx + 1 + 20) * mx + (ky + 1 + 20) * my
     wrk = np.zeros(lwrk, dtype=np.float64)
     kwrk = mx + my
     iwrk = np.zeros(kwrk, dtype=np.int32)
