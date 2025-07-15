@@ -5,7 +5,7 @@ Exact implementation following DIERCKX parder.f line by line.
 import numpy as np
 from numba import cfunc, types
 import ctypes
-from fpbspl_numba import fpbspl_cfunc
+from .fpbspl_numba import fpbspl_cfunc
 
 
 @cfunc(types.void(
@@ -67,16 +67,22 @@ def parder_cfunc(tx, nx, ty, ny, c, kx, ky, nux, nuy, x, mx, y, my, z, wrk, lwrk
     
     ier[0] = 0
     
-    # Check domain restrictions for derivatives (DIERCKX lines 100, 108)
+    # Check domain restrictions for derivatives ONLY (DIERCKX lines 95-109)
+    # Line 95: if(nux.eq.0) go to 70 - skips domain check for nux=0
     if nux > 0:
+        # Lines 99-101: domain check for x when nux > 0 (corrected bounds)
+        # Standard spline domain: tx[kx] to tx[nx-kx-1]
         for i in range(mx):
-            if x[i] < tx[kx1-1] or x[i] > tx[nkx1-1]:
+            if x[i] < tx[kx] or x[i] > tx[nx-kx-1]:
                 ier[0] = 10
                 return
     
+    # Line 103: if(nuy.eq.0) go to 80 - skips domain check for nuy=0
     if nuy > 0:
+        # Lines 107-109: domain check for y when nuy > 0 (corrected bounds)
+        # Standard spline domain: ty[ky] to ty[ny-ky-1]
         for j in range(my):
-            if y[j] < ty[ky1-1] or y[j] > ty[nky1-1]:
+            if y[j] < ty[ky] or y[j] > ty[ny-ky-1]:
                 ier[0] = 10
                 return
     
@@ -123,10 +129,10 @@ def parder_cfunc(tx, nx, ty, ny, c, kx, ky, nux, nuy, x, mx, y, my, z, wrk, lwrk
             if ak == tx[l1-1]:
                 l = l1
         
-        # Lines 131-132: ALWAYS compute iwx and call fpbspl (regardless of nux)
-        iwx = i * (kx1 - nux)  # (i-1)*(kx1-nux)+1 in Fortran 1-based
+        # Lines 131-132: ALWAYS compute iwx and call fpbspl (EXACT DIERCKX indexing)
+        iwx = i * (kx1 - nux)  # Convert (i-1)*(kx1-nux)+1 to 0-based: i*(kx1-nux)
         hx = np.zeros(kx1, dtype=np.float64)
-        fpbspl_cfunc(tx, nx, kx, ak, nux, l + 1, hx)  # Convert l to 1-based
+        fpbspl_cfunc(tx, np.int32(nx), np.int32(kx), ak, np.int32(nux), np.int32(l + 1), hx)  # Convert l to 1-based
         for ii in range(kx1 - nux):  # Store kx1-nux elements
             wrk[iwx + ii] = hx[ii]
                 
@@ -140,8 +146,9 @@ def parder_cfunc(tx, nx, ty, ny, c, kx, ky, nux, nuy, x, mx, y, my, z, wrk, lwrk
                 l1 = l + 1  # l1 = l+1
                 ak = y[j]  # ak = y(j)
                 
-                # Line 175: domain check
-                if ak < ty[ky1-1] or ak > ty[nky1-1]:
+                # Line 175: domain check (corrected bounds)
+                # Standard spline domain: ty[ky] to ty[ny-ky-1]
+                if ak < ty[ky] or ak > ty[ny-ky-1]:
                     ier[0] = 10
                     return
                     
@@ -154,14 +161,12 @@ def parder_cfunc(tx, nx, ty, ny, c, kx, ky, nux, nuy, x, mx, y, my, z, wrk, lwrk
                 if ak == ty[l1-1]:  # Label 150
                     l = l1
                     
-                # Line 184: iwy = (j-1)*ky1+1
-                # In DIERCKX workspace layout for nuy=0 case
-                iwy_base = mx * (kx1 - nux)  # Y workspace starts after X section
-                iwy = iwy_base + j * ky1  # (j-1)*ky1+1 in Fortran -> j*ky1 in 0-based
+                # Line 184: iwy = (j-1)*ky1+1 (EXACT DIERCKX indexing)
+                iwy = j * ky1  # Convert (j-1)*ky1+1 to 0-based: j*ky1
                 
                 # Line 185: call fpbspl
                 hy = np.zeros(ky1, dtype=np.float64)
-                fpbspl_cfunc(ty, ny, ky, ak, 0, l + 1, hy)
+                fpbspl_cfunc(ty, np.int32(ny), np.int32(ky), ak, np.int32(0), np.int32(l + 1), hy)
                 for ii in range(ky1):
                     wrk[iwy + ii] = hy[ii]
                     
@@ -206,13 +211,12 @@ def parder_cfunc(tx, nx, ty, ny, c, kx, ky, nux, nuy, x, mx, y, my, z, wrk, lwrk
                 if ak == ty[l1-1]:  # Label 110
                     l = l1
                     
-                # Line 154: iwy = (j-1)*(ky1-nuy)+1
-                iwy_base = mx * (kx1 - nux)  # Y workspace starts after X section
-                iwy = iwy_base + j * (ky1 - nuy)  # (j-1)*(ky1-nuy)+1 in Fortran
+                # Line 154: iwy = (j-1)*(ky1-nuy)+1 (EXACT DIERCKX indexing)
+                iwy = j * (ky1 - nuy)  # Convert (j-1)*(ky1-nuy)+1 to 0-based: j*(ky1-nuy)
                 
                 # Line 155: call fpbspl for Y derivatives
                 hy = np.zeros(ky1, dtype=np.float64)
-                fpbspl_cfunc(ty, ny, ky, ak, nuy, l + 1, hy)
+                fpbspl_cfunc(ty, np.int32(ny), np.int32(ky), ak, np.int32(nuy), np.int32(l + 1), hy)
                 for ii in range(ky1 - nuy):
                     wrk[iwy + ii] = hy[ii]
                     
