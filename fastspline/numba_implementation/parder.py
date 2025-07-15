@@ -1,11 +1,10 @@
 """
 Numba cfunc implementation of DIERCKX parder algorithm.
-Exact implementation following DIERCKX parder.f line by line.
+Exact implementation following scipy parder.f line by line.
 """
 import numpy as np
 from numba import cfunc, types
 import ctypes
-from .fpbspl_numba import fpbspl_cfunc
 
 
 @cfunc(types.void(
@@ -67,270 +66,208 @@ def parder_cfunc(tx, nx, ty, ny, c, kx, ky, nux, nuy, x, mx, y, my, z, wrk, lwrk
     
     ier[0] = 0
     
-    # Check domain restrictions for derivatives ONLY (DIERCKX lines 95-109)
-    # Line 95: if(nux.eq.0) go to 70 - skips domain check for nux=0
-    if nux > 0:
-        # Lines 99-101: domain check for x when nux > 0 (corrected bounds)
-        # Standard spline domain: tx[kx] to tx[nx-kx-1]
-        for i in range(mx):
-            if x[i] < tx[kx] or x[i] > tx[nx-kx-1]:
-                ier[0] = 10
-                return
+    # Scipy parder algorithm - line by line implementation
+    ier[0] = 0
+    nxx = nkx1  # Line 111: nxx = nkx1  
+    nyy = nky1  # Line 112: nyy = nky1
+    kkx = kx    # Line 113: kkx = kx
+    kky = ky    # Line 114: kky = ky
     
-    # Line 103: if(nuy.eq.0) go to 80 - skips domain check for nuy=0
-    if nuy > 0:
-        # Lines 107-109: domain check for y when nuy > 0 (corrected bounds)
-        # Standard spline domain: ty[ky] to ty[ny-ky-1]
-        for j in range(my):
-            if y[j] < ty[ky] or y[j] > ty[ny-ky-1]:
-                ier[0] = 10
-                return
+    # Lines 118-120: copy coefficients to workspace
+    nc = nkx1 * nky1
+    for i in range(nc):
+        wrk[i] = c[i]
     
-    # The partial derivative computation follows DIERCKX exactly
-    m = 0
+    # Line 121: if(nux.eq.0) go to 200
+    if nux == 0:
+        pass  # Jump to label 200
+    else:
+        # Lines 122-141: X derivative computation
+        lx = 1  # Line 122: lx = 1
+        for j in range(nux):  # Line 123: do 100 j=1,nux
+            ak = kkx  # Line 124: ak = kkx
+            nxx = nxx - 1  # Line 125: nxx = nxx-1
+            l1 = lx  # Line 126: l1 = lx
+            m0 = 1  # Line 127: m0 = 1
+            for i in range(nxx):  # Line 128: do 90 i=1,nxx
+                l1 = l1 + 1  # Line 129: l1 = l1+1
+                l2 = l1 + kkx  # Line 130: l2 = l1+kkx
+                fac = tx[l2-1] - tx[l1-1]  # Line 131: fac = tx(l2)-tx(l1)
+                if fac <= 0.0:  # Line 132: if(fac.le.0.) go to 90
+                    continue
+                for m in range(nyy):  # Line 133: do 80 m=1,nyy
+                    m1 = m0 + nyy  # Line 134: m1 = m0+nyy
+                    wrk[m0-1] = (wrk[m1-1] - wrk[m0-1]) * ak / fac  # Line 135 (0-based)
+                    m0 = m0 + 1  # Line 136: m0 = m0+1
+            lx = lx + 1  # Line 139: lx = lx+1
+            kkx = kkx - 1  # Line 140: kkx = kkx-1
     
-    # DIERCKX line 112: do 300 i=1,mx
+    # Label 200: Line 142: if(nuy.eq.0) go to 300
+    if nuy == 0:
+        pass  # Jump to label 300
+    else:
+        # Lines 143-162: Y derivative computation
+        ly = 1  # Line 143: ly = 1
+        for j in range(nuy):  # Line 144: do 230 j=1,nuy
+            ak = kky  # Line 145: ak = kky
+            nyy = nyy - 1  # Line 146: nyy = nyy-1
+            l1 = ly  # Line 147: l1 = ly
+            for i in range(nyy):  # Line 148: do 220 i=1,nyy
+                l1 = l1 + 1  # Line 149: l1 = l1+1
+                l2 = l1 + kky  # Line 150: l2 = l1+kky
+                fac = ty[l2-1] - ty[l1-1]  # Line 151: fac = ty(l2)-ty(l1)
+                if fac <= 0.0:  # Line 152: if(fac.le.0.) go to 220
+                    continue
+                m0 = i  # Line 153: m0 = i
+                for m in range(nxx):  # Line 154: do 210 m=1,nxx
+                    m1 = m0 + 1  # Line 155: m1 = m0+1
+                    wrk[m0] = (wrk[m1] - wrk[m0]) * ak / fac  # Line 156 (0-based)
+                    m0 = m0 + nky1  # Line 157: m0 = m0+nky1
+            ly = ly + 1  # Line 160: ly = ly+1
+            kky = kky - 1  # Line 161: kky = kky-1
+        
+        # Lines 163-172: coefficient rearrangement
+        m0 = nyy  # Line 163: m0 = nyy
+        m1 = nky1  # Line 164: m1 = nky1
+        for m in range(1, nxx):  # Line 165: do 250 m=2,nxx
+            for i in range(nyy):  # Line 166: do 240 i=1,nyy
+                m0 = m0 + 1  # Line 167: m0 = m0+1
+                m1 = m1 + 1  # Line 168: m1 = m1+1
+                wrk[m0-1] = wrk[m1-1]  # Line 169 (0-based)
+            m1 = m1 + nuy  # Line 171: m1 = m1+nuy
+    
+    # Label 300: Lines 174-177: workspace partitioning and fpbisp call
+    iwx = nxx * nyy  # Line 174: iwx = 1+nxx*nyy → 0-based: nxx*nyy
+    iwy = iwx + mx * (kx1 - nux)  # Line 175: iwy = iwx+mx*(kx1-nux)
+    
+    # Inline fpbisp call - Line 176-177
+    # call fpbisp(tx(nux+1),nx-2*nux,ty(nuy+1),ny-2*nuy,wrk,kkx,kky,x,mx,y,my,z,wrk(iwx),wrk(iwy),iwrk(1),iwrk(mx+1))
+    
+    # Full fpbisp implementation inlined
+    # Adjust parameters for derivative: tx(nux+1) means tx starting at index nux (0-based)
+    tx_start = nux
+    ty_start = nuy
+    nx_adj = nx - 2 * nux
+    ny_adj = ny - 2 * nuy
+    
+    # Local variables for fpbisp
+    kx1_adj = kkx + 1  # kkx is already kx-nux for derivatives
+    ky1_adj = kky + 1  # kky is already ky-nuy for derivatives
+    nkx1_adj = nx_adj - kx1_adj
+    nky1_adj = ny_adj - ky1_adj
+    
+    # Domain bounds for adjusted knots
+    tb_x = tx[tx_start + kkx]  # tx[nux + kkx] = tx[nux + kx - nux] = tx[kx]
+    te_x = tx[tx_start + nkx1_adj]  # tx[nux + nkx1_adj]
+    tb_y = ty[ty_start + kky]  # ty[nuy + kky] = ty[nuy + ky - nuy] = ty[ky]
+    te_y = ty[ty_start + nky1_adj]  # ty[nuy + nky1_adj]
+    
+    # Workspace pointers: wrk(iwx) and wrk(iwy) in 0-based indexing
+    wx = iwx  # B-spline values for x
+    wy = iwy  # B-spline values for y
+    lx_ptr = 0     # iwrk(1) in 0-based
+    ly_ptr = mx    # iwrk(mx+1) in 0-based
+    
+    # Evaluate B-splines in x-direction
+    l = kkx  # Start at kkx (0-based)
+    l1 = l + 1
+    
     for i in range(mx):
-        l = kx1  # Line 113: l = kx1
-        l1 = l + 1  # Line 114: l1 = l+1
-        iwx = 0  # Initialize iwx
+        arg = x[i]
+        if arg < tb_x:
+            arg = tb_x
+        if arg > te_x:
+            arg = te_x
+            
+        # Find knot interval
+        while arg >= tx[tx_start + l1] and l < nkx1_adj - 1:
+            l = l1
+            l1 = l + 1
+            
+        # Inline fpbspl algorithm for x direction - use static arrays
+        h = [0.0] * 20
+        hh = [0.0] * 19
+        h[0] = 1.0
         
-        # Line 115: if(nux.eq.0) go to 100
-        if nux == 0:
-            # Jump to label 100 (line 134)
-            pass  # Will handle X basis computation when needed
-        else:
-            # Lines 116-132: nux > 0 processing
-            ak = x[i]  # Line 116: ak = x(i)
-            nkx1_local = nx - nux  # Line 117: nkx1 = nx-nux
-            kx1_local = kx + 1  # Line 118: kx1 = kx+1
-            tb = tx[nux]  # Line 119: tb = tx(nux+1) (Fortran 1-based)
-            te = tx[nkx1_local-1]  # Line 120: te = tx(nkx1) (Fortran 1-based)
-            if ak < tb:  # Line 121
-                ak = tb
-            if ak > te:  # Line 122
-                ak = te
-            
-            # Lines 124-130: search for knot interval
-            l = nux  # Line 124: l = nux
-            l1 = l + 1  # Line 125: l1 = l+1
-            # Label 85: Line 126
-            while not (ak < tx[l1-1] or l == nkx1_local-1):  # Line 126
-                l = l1  # Line 127
-                l1 = l + 1  # Line 128
-            # Label 90: Line 130
-            if ak == tx[l1-1]:  # Line 130
-                l = l1
-            
-            # Lines 131-132: X basis computation for nux > 0
-            iwx = i * (kx1 - nux)  # Line 131: iwx = (i-1)*(kx1-nux)+1 → 0-based
-            # Manual fpbspl computation - inline the algorithm
-            # Initialize basis functions in workspace
-            wrk[iwx] = 1.0
-            for j in range(1, kx - nux + 1):
-                # Copy current values to temp storage in workspace (use high indices)
-                for ii in range(j):
-                    wrk[lwrk - 20 + ii] = wrk[iwx + ii]
-                wrk[iwx] = 0.0
-                for ii in range(1, j + 1):
-                    li = l + ii
-                    lj = li - j
-                    if tx[li-1] != tx[lj-1]:
-                        f = wrk[lwrk - 20 + ii - 1] / (tx[li-1] - tx[lj-1])
-                        wrk[iwx + ii - 1] = wrk[iwx + ii - 1] + f * (tx[li-1] - ak)
-                        wrk[iwx + ii] = f * (ak - tx[lj-1])
-                    else:
-                        wrk[iwx + ii] = 0.0
-            # Apply derivative scaling for nux > 0
-            if nux > 0:
-                fac = 1.0
-                for ii in range(nux):
-                    fac *= (kx - ii)
-                for ii in range(kx1 - nux):
-                    wrk[iwx + ii] *= fac
+        for j in range(1, kkx + 1):
+            for ii in range(j):
+                hh[ii] = h[ii]
+            h[0] = 0.0
+            for ii in range(1, j + 1):
+                li = (l + 1) + ii
+                lj = li - j
+                if tx[tx_start + li - 1] == tx[tx_start + lj - 1]:
+                    h[ii] = 0.0
+                else:
+                    f = hh[ii-1] / (tx[tx_start + li - 1] - tx[tx_start + lj - 1])
+                    h[ii-1] = h[ii-1] + f * (tx[tx_start + li - 1] - arg)
+                    h[ii] = f * (arg - tx[tx_start + lj - 1])
         
-        # Label 100: Line 134 - if(nuy.eq.0) go to 130
-        if nuy == 0:
-            # Jump to label 130 (line 171)
-            # For nux=0: need to compute X basis functions here for function evaluation
-            if nux == 0:
-                ak = x[i]
-                # Standard function evaluation knot search
-                l = kx  # Start from kx for function evaluation
-                l1 = l + 1
-                while ak >= tx[l1-1] and l < nkx1 - 1:
-                    l = l1
-                    l1 = l + 1
-                if ak == tx[l1-1]:
-                    l = l1
-                
-                # Compute X basis functions for function evaluation
-                iwx = i * kx1  # For nux=0: workspace is i*kx1
-                # Manual fpbspl computation for nux=0 (function evaluation)
-                wrk[iwx] = 1.0
-                for j in range(1, kx + 1):
-                    # Copy current values to temp storage
-                    for ii in range(j):
-                        wrk[lwrk - 20 + ii] = wrk[iwx + ii]
-                    wrk[iwx] = 0.0
-                    for ii in range(1, j + 1):
-                        li = l + ii
-                        lj = li - j
-                        if tx[li-1] != tx[lj-1]:
-                            f = wrk[lwrk - 20 + ii - 1] / (tx[li-1] - tx[lj-1])
-                            wrk[iwx + ii - 1] = wrk[iwx + ii - 1] + f * (tx[li-1] - ak)
-                            wrk[iwx + ii] = f * (ak - tx[lj-1])
-                        else:
-                            wrk[iwx + ii] = 0.0
+        iwrk[lx_ptr + i] = l - kkx
+        for j in range(kx1_adj):
+            wrk[wx + i * kx1_adj + j] = h[j]
+    
+    # Evaluate B-splines in y-direction
+    l = kky
+    l1 = l + 1
+    
+    for i in range(my):
+        arg = y[i]
+        if arg < tb_y:
+            arg = tb_y
+        if arg > te_y:
+            arg = te_y
             
-            # Label 130: Line 171 - do 200 j=1,my
-            for j in range(my):
-                l = ky1  # Line 172: l = ky1
-                l1 = l + 1  # Line 173: l1 = l+1
-                ak = y[j]  # Line 174: ak = y(j)
+        while arg >= ty[ty_start + l1] and l < nky1_adj - 1:
+            l = l1
+            l1 = l + 1
+            
+        # Inline fpbspl algorithm for y direction - use static arrays
+        h = [0.0] * 20
+        hh = [0.0] * 19
+        h[0] = 1.0
+        
+        for j in range(1, kky + 1):
+            for ii in range(j):
+                hh[ii] = h[ii]
+            h[0] = 0.0
+            for ii in range(1, j + 1):
+                li = (l + 1) + ii
+                lj = li - j
+                if ty[ty_start + li - 1] == ty[ty_start + lj - 1]:
+                    h[ii] = 0.0
+                else:
+                    f = hh[ii-1] / (ty[ty_start + li - 1] - ty[ty_start + lj - 1])
+                    h[ii-1] = h[ii-1] + f * (ty[ty_start + li - 1] - arg)
+                    h[ii] = f * (arg - ty[ty_start + lj - 1])
+        
+        iwrk[ly_ptr + i] = l - kky
+        for j in range(ky1_adj):
+            wrk[wy + i * ky1_adj + j] = h[j]
+    
+    # Evaluate tensor product
+    m = 0
+    hx = [0.0] * 6
+    
+    for i in range(mx):
+        l_base = iwrk[lx_ptr + i] * nky1_adj
+        
+        for i1 in range(kx1_adj):
+            hx[i1] = wrk[wx + i * kx1_adj + i1]
+            
+        for j in range(my):
+            l1 = l_base + iwrk[ly_ptr + j]
+            sp = 0.0
+            
+            for i1 in range(kx1_adj):
+                l2 = l1
+                for j1 in range(ky1_adj):
+                    sp = sp + wrk[l2] * hx[i1] * wrk[wy + j * ky1_adj + j1]
+                    l2 = l2 + 1
+                l1 = l1 + nky1_adj
                 
-                # Line 175: domain check (CORRECTED - DIERCKX has error)
-                # DIERCKX says ty(ky1) and ty(nky1) but this gives [0,0] domain
-                # Correct domain is ty[ky] to ty[ny-ky-1] for standard splines
-                if ak < ty[ky] or ak > ty[ny-ky-1]:
-                    ier[0] = 10
-                    return
-                    
-                # Lines 177-183: search for knot interval
-                l = ky  # Line 177: l = ky
-                l1 = l + 1  # Line 178: l1 = l+1
-                # Label 140: Line 179
-                while not (ak < ty[l1-1] or l == nky1-1):  # Line 179
-                    l = l1  # Line 180
-                    l1 = l + 1  # Line 181
-                # Label 150: Line 183
-                if ak == ty[l1-1]:  # Line 183
-                    l = l1
-                    
-                # Line 184: iwy = (j-1)*ky1+1
-                iwy = j * ky1  # Convert to 0-based: j*ky1
-                
-                # Line 185: call fpbspl(ty,ny,ky,ak,0,l,wrk(iwy))
-                # Manual fpbspl computation for nuy=0 (function evaluation)
-                wrk[iwy] = 1.0
-                for jj in range(1, ky + 1):
-                    # Copy current values to temp storage
-                    for ii in range(jj):
-                        wrk[lwrk - 40 + ii] = wrk[iwy + ii]
-                    wrk[iwy] = 0.0
-                    for ii in range(1, jj + 1):
-                        li = l + ii
-                        lj = li - jj
-                        if ty[li-1] != ty[lj-1]:
-                            f = wrk[lwrk - 40 + ii - 1] / (ty[li-1] - ty[lj-1])
-                            wrk[iwy + ii - 1] = wrk[iwy + ii - 1] + f * (ty[li-1] - ak)
-                            wrk[iwy + ii] = f * (ak - ty[lj-1])
-                        else:
-                            wrk[iwy + ii] = 0.0
-                    
-                # Line 187: iwrk(mx+j) = l-ky
-                iwrk[mx + j] = l - ky
-                # Line 188: m = m+1
-                m = m + 1
-                # Line 189: z(m) = 0.
-                z[m-1] = 0.0  # Convert to 0-based
-                # Line 190: l2 = l-ky
-                l2 = l - ky
-                
-                # Lines 191-196: tensor product computation
-                # do 160 lx=1,kx1-nux
-                for lx in range(1, kx1 - nux + 1):
-                    l1 = l2  # l1 = l2
-                    # do 160 ly=1,ky1
-                    for ly in range(1, ky1 + 1):
-                        l1 = l1 + 1  # l1 = l1+1
-                        # z(m) = z(m)+c(l1)*wrk(iwx+lx-1)*wrk(iwy+ly-1)
-                        coeff_idx = l1 - 1  # Convert to 0-based
-                        x_basis = wrk[iwx + lx - 1]
-                        y_basis = wrk[iwy + ly - 1]
-                        z[m-1] = z[m-1] + c[coeff_idx] * x_basis * y_basis
-                    # Label 160: l2 = l2+nky1
-                    l2 = l2 + nky1
-        else:
-            # nuy > 0: Y derivative processing (lines 136-168)
-            # do 120 j=1,my (Line 136)
-            for j in range(my):
-                l = ky1  # Line 137: l = ky1
-                l1 = l + 1  # Line 138: l1 = l+1
-                ak = y[j]  # Line 139: ak = y(j)
-                nky1_local = ny - nuy  # Line 140: nky1 = ny-nuy
-                ky1_local = ky + 1  # Line 141: ky1 = ky+1
-                tb = ty[nuy]  # Line 142: tb = ty(nuy+1) (Fortran 1-based)
-                te = ty[nky1_local-1]  # Line 143: te = ty(nky1) (Fortran 1-based)
-                if ak < tb:  # Line 144
-                    ak = tb
-                if ak > te:  # Line 145
-                    ak = te
-                    
-                # Lines 147-153: search for knot interval
-                l = nuy  # Line 147: l = nuy
-                l1 = l + 1  # Line 148: l1 = l+1
-                # Label 105: Line 149
-                while not (ak < ty[l1-1] or l == nky1_local-1):  # Line 149
-                    l = l1  # Line 150
-                    l1 = l + 1  # Line 151
-                # Label 110: Line 153
-                if ak == ty[l1-1]:  # Line 153
-                    l = l1
-                    
-                # Line 154: iwy = (j-1)*(ky1-nuy)+1
-                iwy = j * (ky1 - nuy)  # Convert to 0-based
-                
-                # Line 155: call fpbspl(ty,ny,ky,ak,nuy,l,wrk(iwy))
-                # Manual fpbspl computation for nuy > 0 (derivatives)
-                wrk[iwy] = 1.0
-                for jj in range(1, ky - nuy + 1):
-                    # Copy current values to temp storage
-                    for ii in range(jj):
-                        wrk[lwrk - 60 + ii] = wrk[iwy + ii]
-                    wrk[iwy] = 0.0
-                    for ii in range(1, jj + 1):
-                        li = l + ii
-                        lj = li - jj
-                        if ty[li-1] != ty[lj-1]:
-                            f = wrk[lwrk - 60 + ii - 1] / (ty[li-1] - ty[lj-1])
-                            wrk[iwy + ii - 1] = wrk[iwy + ii - 1] + f * (ty[li-1] - ak)
-                            wrk[iwy + ii] = f * (ak - ty[lj-1])
-                        else:
-                            wrk[iwy + ii] = 0.0
-                # Apply derivative scaling for nuy > 0
-                if nuy > 0:
-                    fac = 1.0
-                    for ii in range(nuy):
-                        fac *= (ky - ii)
-                    for ii in range(ky1 - nuy):
-                        wrk[iwy + ii] *= fac
-                    
-                # Line 157: iwrk(i) = l-nuy
-                iwrk[i] = l - nuy
-                # Line 158: iwrk(mx+j) = l-nuy
-                iwrk[mx + j] = l - nuy
-                # Line 159: m = m+1
-                m = m + 1
-                # Line 160: z(m) = 0.
-                z[m-1] = 0.0  # Convert to 0-based
-                # Line 161: l2 = l-nuy
-                l2 = l - nuy
-                
-                # Lines 162-167: tensor product for derivatives
-                # do 115 lx=1,kx1-nux
-                for lx in range(1, kx1 - nux + 1):
-                    l1 = l2  # l1 = l2
-                    # do 115 ly=1,ky1-nuy
-                    for ly in range(1, ky1 - nuy + 1):
-                        l1 = l1 + 1  # l1 = l1+1
-                        # z(m) = z(m)+c(l1)*wrk(iwx+lx-1)*wrk(iwy+ly-1)
-                        coeff_idx = l1 - 1  # Convert to 0-based
-                        x_basis = wrk[iwx + lx - 1]
-                        y_basis = wrk[iwy + ly - 1]
-                        z[m-1] = z[m-1] + c[coeff_idx] * x_basis * y_basis
-                    # Label 115: l2 = l2+nky1
-                    l2 = l2 + nky1_local
+            z[m] = sp
+            m = m + 1
 
 
 # Export address
