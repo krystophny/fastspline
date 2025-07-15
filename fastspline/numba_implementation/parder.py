@@ -83,82 +83,106 @@ def parder_cfunc(tx, nx, ty, ny, c, kx, ky, nux, nuy, x, mx, y, my, z, wrk, lwrk
     # The partial derivative computation follows DIERCKX exactly
     m = 0
     
-    # Main loop over x points (DIERCKX line 112)
+    # Main loop over x points (DIERCKX line 112) - follow exact Fortran structure
     for i in range(mx):
-        l = kx1
-        l1 = l + 1
+        l = kx1  # Fortran: l = kx1
+        l1 = l + 1  # Fortran: l1 = l+1
         
-        # Handle X derivatives (DIERCKX line 115)
+        # For nux=0, we still need X basis functions for tensor product
+        ak = x[i]
         if nux == 0:
-            # No X derivatives - standard evaluation
-            ak = x[i]
-            
+            # Standard X evaluation (no derivatives)
             # Search for knot interval
-            l = kx
+            l_x = kx
+            l1_x = l_x + 1
+            while ak >= tx[l1_x-1] and l_x < nkx1 - 1:
+                l_x = l1_x
+                l1_x = l_x + 1
+            if ak == tx[l1_x-1]:
+                l_x = l1_x
+            
+            # Call fpbspl for X with nux=0
+            iwx = i * (kx1 - nux)  # X workspace
+            hx = np.zeros(kx1, dtype=np.float64)
+            fpbspl_cfunc(tx, nx, kx, ak, 0, l_x + 1, hx)  # nux=0, convert l to 1-based
+            for ii in range(kx1):
+                wrk[iwx + ii] = hx[ii]
+        else:
+            # Follow DIERCKX line 115 exactly
+            if True:  # nux != 0 case
+            # X derivatives case (lines 116-132)
+            ak = x[i]
+            nkx1 = nx - nux
+            kx1 = kx + 1
+            tb = tx[nux]  # tx(nux+1) in Fortran 1-based
+            te = tx[nkx1-1]  # tx(nkx1) in Fortran 1-based
+            if ak < tb:
+                ak = tb
+            if ak > te:
+                ak = te
+            
+            # Search for knot interval (lines 124-130)
+            l = nux
             l1 = l + 1
-            while ak >= tx[l1-1] and l < nkx1 - 1:
+            while ak >= tx[l1-1] and l != nkx1-1:  # Convert Fortran to 0-based
                 l = l1
                 l1 = l + 1
             if ak == tx[l1-1]:
                 l = l1
             
-            # Call fpbspl exactly like DIERCKX does for X direction
-            iwx = i * (kx1 - nux)  # X basis functions workspace
+            # Call fpbspl (line 132)
+            iwx = i * (kx1 - nux)  # (i-1)*(kx1-nux)+1 in Fortran 1-based
             hx = np.zeros(kx1, dtype=np.float64)
-            fpbspl_cfunc(tx, nx, kx, ak, nux, l + 1, hx)  # Convert to 1-based
-            # Copy results to workspace
+            fpbspl_cfunc(tx, nx, kx, ak, nux, l + 1, hx)  # Convert l to 1-based
             for ii in range(kx1):
                 wrk[iwx + ii] = hx[ii]
-            
-            # Store interval index for iwrk
-            iwrk[i] = l - kx
-        else:
-            # X derivatives case - simplified for now
-            ier[0] = 10  # Not implemented
-            return
         
-        # Handle Y direction - only nuy=0 case for now
-        if nuy > 0:
-            ier[0] = 10  # Not implemented
-            return
-        else:
-            # No Y derivatives case
+        # Handle nuy=0 case (DIERCKX line 134 → 171)
+        if nuy == 0:
+            # Go to line 130 in Fortran (our line for nuy=0 case)
             for j in range(my):
-                l = ky1
-                l1 = l + 1
-                ak = y[j]
+                l = ky1  # Fortran: l = ky1
+                l1 = l + 1  # Fortran: l1 = l+1  
+                ak = y[j]  # Fortran: ak = y(j)
                 
-                # Search for knot interval
+                # Domain check (line 175)
+                if ak < ty[ky1-1] or ak > ty[nky1-1]:  # Convert to 0-based
+                    ier[0] = 10
+                    return
+                
+                # Search for knot interval (lines 177-183)
                 l = ky
                 l1 = l + 1
-                while ak >= ty[l1-1] and l != nky1-1:
+                while ak >= ty[l1-1] and l != nky1-1:  # Convert to 0-based
                     l = l1
                     l1 = l + 1
                 if ak == ty[l1-1]:
                     l = l1
                 
-                # Call fpbspl exactly like DIERCKX does for Y direction
-                iwy = mx * (kx1 - nux) + j * (ky1 - nuy)  # Y basis functions workspace
+                # Call fpbspl for Y (line 185)
+                iwy = mx * (kx1 - nux) + j * ky1  # (j-1)*ky1+1 in Fortran, adjusted for workspace
                 hy = np.zeros(ky1, dtype=np.float64)
-                fpbspl_cfunc(ty, ny, ky, ak, 0, l + 1, hy)  # Convert to 1-based, always use 0 for function evaluation
-                # Copy results to workspace
+                fpbspl_cfunc(ty, ny, ky, ak, 0, l + 1, hy)  # Convert l to 1-based
                 for ii in range(ky1):
                     wrk[iwy + ii] = hy[ii]
                 
-                # Compute the function value
-                iwrk[mx + j] = l - ky
+                # Compute function value (lines 187-196)
+                iwrk[mx + j] = l - ky  # iwrk(mx+j) = l-ky
+                m = m + 1  # m = m+1
+                z[m-1] = 0.0  # z(m) = 0. (convert to 0-based)
+                l2 = l - ky  # l2 = l-ky
                 
-                z[m] = 0.0
-                l2 = l - ky
-                
-                # Tensor product sum
-                for lx in range(1, kx1 - nux + 1):
-                    l1 = l2
-                    for ly in range(1, ky1 + 1):
-                        l1 = l1 + 1
-                        z[m] = z[m] + c[l1-1] * wrk[iwx + lx - 1] * wrk[iwy + ly - 1]
-                    l2 = l2 + nky1
-                m = m + 1
+                # Tensor product (lines 191-196)
+                for lx in range(1, kx1 - nux + 1):  # do 160 lx=1,kx1-nux
+                    l1 = l2  # l1 = l2
+                    for ly in range(1, ky1 + 1):  # do 160 ly=1,ky1
+                        l1 = l1 + 1  # l1 = l1+1
+                        # z(m) = z(m)+c(l1)*wrk(iwx+lx-1)*wrk(iwy+ly-1)
+                        z[m-1] = z[m-1] + c[l1-1] * wrk[iwx + lx - 1] * wrk[iwy + ly - 1]
+                    l2 = l2 + nky1  # l2 = l2+nky1
+        else:
+            ier[0] = 10  # nuy > 0 not implemented yet
+            return
 
 
 # Export address
