@@ -89,35 +89,22 @@ def parder_cfunc(tx, nx, ty, ny, c, kx, ky, nux, nuy, x, mx, y, my, z, wrk, lwrk
         l1 = l + 1  # l1 = l+1
         
         # Line 115: if(nux.eq.0) go to 100
+        # BUT FIRST: We still need X basis functions even for nux=0!
+        # The key insight: DIERCKX computes X basis BEFORE checking nux
+        ak = x[i]
+        
         if nux == 0:
-            # For nux=0, we need to compute X basis functions for function evaluation
-            # This happens BEFORE the Y processing, not during it
-            ak = x[i]
-            
-            # Standard knot search for function evaluation
-            l_x = kx
+            # For nux=0: standard knot search (not derivative knot search)
+            l_x = kx  # Start from kx for function evaluation
             l1_x = l_x + 1
             while ak >= tx[l1_x-1] and l_x < nkx1 - 1:
                 l_x = l1_x
                 l1_x = l_x + 1
             if ak == tx[l1_x-1]:
                 l_x = l1_x
-                
-            # Compute iwx for nux=0 case - use standard workspace layout
-            iwx = i * (kx1 - nux)  # For nux=0, this is i * kx1
-            
-            # Call fpbspl for X direction
-            hx = np.zeros(kx1, dtype=np.float64)
-            fpbspl_cfunc(tx, nx, kx, ak, 0, l_x + 1, hx)  # nux=0 for function evaluation
-            for ii in range(kx1):
-                wrk[iwx + ii] = hx[ii]
-            
-            # Store interval index
-            iwrk[i] = l_x - kx
-            
+            l = l_x  # Set l for use in iwx calculation
         else:
-            # nux > 0: X derivative processing (lines 116-132)
-            ak = x[i]
+            # For nux>0: derivative knot search (lines 116-130)
             nkx1_temp = nx - nux
             kx1_temp = kx + 1
             tb = tx[nux]  # tx(nux+1) in Fortran 1-based
@@ -135,13 +122,13 @@ def parder_cfunc(tx, nx, ty, ny, c, kx, ky, nux, nuy, x, mx, y, my, z, wrk, lwrk
                 l1 = l + 1
             if ak == tx[l1-1]:
                 l = l1
-                
-            # Call fpbspl (line 132)
-            iwx = i * (kx1 - nux)
-            hx = np.zeros(kx1, dtype=np.float64)
-            fpbspl_cfunc(tx, nx, kx, ak, nux, l + 1, hx)
-            for ii in range(kx1 - nux):
-                wrk[iwx + ii] = hx[ii]
+        
+        # Lines 131-132: ALWAYS compute iwx and call fpbspl (regardless of nux)
+        iwx = i * (kx1 - nux)  # (i-1)*(kx1-nux)+1 in Fortran 1-based
+        hx = np.zeros(kx1, dtype=np.float64)
+        fpbspl_cfunc(tx, nx, kx, ak, nux, l + 1, hx)  # Convert l to 1-based
+        for ii in range(kx1 - nux):  # Store kx1-nux elements
+            wrk[iwx + ii] = hx[ii]
                 
         # Label 100: Line 134 - if(nuy.eq.0) go to 130
         if nuy == 0:
