@@ -325,8 +325,9 @@ class TestParderComprehensive:
             yi = np.array([0.5])
             
             # Test derivatives up to available order
-            max_nux = min(kx, 2)
-            max_nuy = min(ky, 2)
+            # For degree k, maximum derivative order is k-1
+            max_nux = min(kx - 1, 2)
+            max_nuy = min(ky - 1, 2)
             
             for nux in range(max_nux + 1):
                 for nuy in range(max_nuy + 1):
