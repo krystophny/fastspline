@@ -102,7 +102,7 @@ def parder_cfunc(tx, nx, ty, ny, c, kx, ky, nux, nuy, x, mx, y, my, z, wrk, lwrk
                 l = l1
             
             # Inline fpbspl algorithm for standard evaluation
-            iwx = i * kx1  # X basis functions workspace
+            iwx = i * (kx1 - nux)  # X basis functions workspace
             
             # Initialize h array: h[1] = 1.0 in Fortran
             wrk[iwx] = 1.0
@@ -110,7 +110,7 @@ def parder_cfunc(tx, nx, ty, ny, c, kx, ky, nux, nuy, x, mx, y, my, z, wrk, lwrk
             # Main Cox-de Boor recursion
             for j in range(1, kx + 1):
                 # Copy current h values to temporary storage (use end of workspace)
-                temp_start = mx * kx1 + my * ky1
+                temp_start = mx * (kx1 - nux) + my * (ky1 - nuy)
                 for ii in range(j):
                     wrk[temp_start + ii] = wrk[iwx + ii]
                 
@@ -155,8 +155,8 @@ def parder_cfunc(tx, nx, ty, ny, c, kx, ky, nux, nuy, x, mx, y, my, z, wrk, lwrk
                 if ak == ty[l1-1]:
                     l = l1
                 
-                # Inline fpbspl algorithm  
-                iwy = mx * kx1 + j * ky1  # Y basis functions workspace
+                # Inline fpbspl algorithm - Y workspace starts after X section
+                iwy = mx * (kx1 - nux) + j * (ky1 - nuy)  # Y basis functions workspace
                 
                 # Initialize h array: h[1] = 1.0 in Fortran
                 wrk[iwy] = 1.0
@@ -164,7 +164,7 @@ def parder_cfunc(tx, nx, ty, ny, c, kx, ky, nux, nuy, x, mx, y, my, z, wrk, lwrk
                 # Main Cox-de Boor recursion
                 for jj in range(1, ky + 1):
                     # Copy current h values to temporary storage (use end of workspace)
-                    temp_start = mx * kx1 + my * ky1
+                    temp_start = mx * (kx1 - nux) + my * (ky1 - nuy)
                     for ii in range(jj):
                         wrk[temp_start + ii] = wrk[iwy + ii]
                     
@@ -221,7 +221,7 @@ def call_parder_safe(tx, ty, c, kx, ky, nux, nuy, x, y):
     z = np.zeros(mx * my, dtype=np.float64)
     
     # Allocate workspace arrays using DIERCKX partitioning plus temp space
-    lwrk = mx * (kx + 1) + my * (ky + 1) + 20  # DIERCKX formula + temp space
+    lwrk = mx * (kx + 1 - nux) + my * (ky + 1 - nuy) + 20  # DIERCKX formula + temp space
     wrk = np.zeros(lwrk, dtype=np.float64)
     kwrk = mx + my
     iwrk = np.zeros(kwrk, dtype=np.int32)
