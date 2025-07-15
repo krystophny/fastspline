@@ -83,39 +83,23 @@ def parder_cfunc(tx, nx, ty, ny, c, kx, ky, nux, nuy, x, mx, y, my, z, wrk, lwrk
     # The partial derivative computation follows DIERCKX exactly
     m = 0
     
-    # Main loop over x points (DIERCKX line 112) - follow exact Fortran structure
+    # Follow exact DIERCKX algorithm structure
+    # Main loop over x points (DIERCKX line 112)
     for i in range(mx):
         l = kx1  # Fortran: l = kx1
         l1 = l + 1  # Fortran: l1 = l+1
         
-        # For nux=0, we still need X basis functions for tensor product
-        ak = x[i]
+        # Handle nux case exactly like DIERCKX (line 115)
         if nux == 0:
-            # Standard X evaluation (no derivatives)
-            # Search for knot interval
-            l_x = kx
-            l1_x = l_x + 1
-            while ak >= tx[l1_x-1] and l_x < nkx1 - 1:
-                l_x = l1_x
-                l1_x = l_x + 1
-            if ak == tx[l1_x-1]:
-                l_x = l1_x
-            
-            # Call fpbspl for X with nux=0
-            iwx = i * (kx1 - nux)  # X workspace
-            hx = np.zeros(kx1, dtype=np.float64)
-            fpbspl_cfunc(tx, nx, kx, ak, 0, l_x + 1, hx)  # nux=0, convert l to 1-based
-            for ii in range(kx1):
-                wrk[iwx + ii] = hx[ii]
+            # nux=0: jump to label 100 (line 134)
+            pass  # Skip X derivative processing
         else:
-            # Follow DIERCKX line 115 exactly
-            if True:  # nux != 0 case
-            # X derivatives case (lines 116-132)
+            # nux>0: X derivative processing (lines 116-132)
             ak = x[i]
-            nkx1 = nx - nux
-            kx1 = kx + 1
-            tb = tx[nux]  # tx(nux+1) in Fortran 1-based
-            te = tx[nkx1-1]  # tx(nkx1) in Fortran 1-based
+            nkx1_temp = nx - nux
+            kx1_temp = kx + 1
+            tb = tx[nux]  # tx(nux+1) in Fortran 1-based -> tx[nux] in 0-based
+            te = tx[nkx1_temp-1]  # tx(nkx1) in Fortran 1-based
             if ak < tb:
                 ak = tb
             if ak > te:
@@ -124,26 +108,49 @@ def parder_cfunc(tx, nx, ty, ny, c, kx, ky, nux, nuy, x, mx, y, my, z, wrk, lwrk
             # Search for knot interval (lines 124-130)
             l = nux
             l1 = l + 1
-            while ak >= tx[l1-1] and l != nkx1-1:  # Convert Fortran to 0-based
+            while ak >= tx[l1-1] and l != nkx1_temp-1:  # Convert to 0-based
                 l = l1
                 l1 = l + 1
             if ak == tx[l1-1]:
                 l = l1
             
             # Call fpbspl (line 132)
-            iwx = i * (kx1 - nux)  # (i-1)*(kx1-nux)+1 in Fortran 1-based
+            iwx = i * (kx1 - nux)  # (i-1)*(kx1-nux)+1 in Fortran -> i*(kx1-nux) in 0-based
             hx = np.zeros(kx1, dtype=np.float64)
             fpbspl_cfunc(tx, nx, kx, ak, nux, l + 1, hx)  # Convert l to 1-based
-            for ii in range(kx1):
+            for ii in range(kx1 - nux):  # Only store kx1-nux elements for derivatives
                 wrk[iwx + ii] = hx[ii]
         
-        # Handle nuy=0 case (DIERCKX line 134 → 171)
+        # Label 100: Handle nuy case (line 134)
         if nuy == 0:
-            # Go to line 130 in Fortran (our line for nuy=0 case)
-            for j in range(my):
-                l = ky1  # Fortran: l = ky1
-                l1 = l + 1  # Fortran: l1 = l+1  
-                ak = y[j]  # Fortran: ak = y(j)
+            # nuy=0: jump to label 130 (line 171) - function evaluation only
+            
+            # BUT WAIT! For nux=0, nuy=0, we still need X basis functions!
+            # Let me check if DIERCKX computes them elsewhere...
+            if nux == 0:
+                # For function evaluation, we need X basis with nux=0
+                ak = x[i]
+                # Standard knot search for function evaluation
+                l_x = kx
+                l1_x = l_x + 1
+                while ak >= tx[l1_x-1] and l_x < nkx1 - 1:
+                    l_x = l1_x
+                    l1_x = l_x + 1
+                if ak == tx[l1_x-1]:
+                    l_x = l1_x
+                
+                iwx = i * kx1  # For nux=0, use full kx1 space
+                hx = np.zeros(kx1, dtype=np.float64)
+                fpbspl_cfunc(tx, nx, kx, ak, 0, l_x + 1, hx)  # nux=0 for function evaluation
+                for ii in range(kx1):
+                    wrk[iwx + ii] = hx[ii]
+                iwrk[i] = l_x - kx  # Store interval index
+            
+            # Label 130: Process Y direction (line 171)
+            for j in range(my):  # do 200 j=1,my
+                l = ky1  # l = ky1
+                l1 = l + 1  # l1 = l+1
+                ak = y[j]  # ak = y(j)
                 
                 # Domain check (line 175)
                 if ak < ty[ky1-1] or ak > ty[nky1-1]:  # Convert to 0-based
@@ -151,16 +158,23 @@ def parder_cfunc(tx, nx, ty, ny, c, kx, ky, nux, nuy, x, mx, y, my, z, wrk, lwrk
                     return
                 
                 # Search for knot interval (lines 177-183)
-                l = ky
-                l1 = l + 1
+                l = ky  # l = ky
+                l1 = l + 1  # l1 = l+1
+                # Label 140: knot search loop
                 while ak >= ty[l1-1] and l != nky1-1:  # Convert to 0-based
                     l = l1
                     l1 = l + 1
+                # Label 150: check exact match
                 if ak == ty[l1-1]:
                     l = l1
                 
-                # Call fpbspl for Y (line 185)
-                iwy = mx * (kx1 - nux) + j * ky1  # (j-1)*ky1+1 in Fortran, adjusted for workspace
+                # Compute iwy exactly like DIERCKX (line 184)
+                # iwy = (j-1)*ky1+1 in Fortran 1-based
+                # Convert to 0-based with workspace offset
+                iwy_offset = mx * kx1  # Y workspace starts after X workspace
+                iwy = iwy_offset + j * ky1  # j*ky1 in 0-based
+                
+                # Call fpbspl (line 185)
                 hy = np.zeros(ky1, dtype=np.float64)
                 fpbspl_cfunc(ty, ny, ky, ak, 0, l + 1, hy)  # Convert l to 1-based
                 for ii in range(ky1):
@@ -173,15 +187,21 @@ def parder_cfunc(tx, nx, ty, ny, c, kx, ky, nux, nuy, x, mx, y, my, z, wrk, lwrk
                 l2 = l - ky  # l2 = l-ky
                 
                 # Tensor product (lines 191-196)
-                for lx in range(1, kx1 - nux + 1):  # do 160 lx=1,kx1-nux
+                # do 160 lx=1,kx1-nux (for nux=0, this is 1 to kx1)
+                for lx in range(1, kx1 - nux + 1):
                     l1 = l2  # l1 = l2
-                    for ly in range(1, ky1 + 1):  # do 160 ly=1,ky1
+                    # do 160 ly=1,ky1
+                    for ly in range(1, ky1 + 1):
                         l1 = l1 + 1  # l1 = l1+1
                         # z(m) = z(m)+c(l1)*wrk(iwx+lx-1)*wrk(iwy+ly-1)
-                        z[m-1] = z[m-1] + c[l1-1] * wrk[iwx + lx - 1] * wrk[iwy + ly - 1]
+                        coeff_idx = l1 - 1  # Convert to 0-based
+                        x_basis = wrk[iwx + lx - 1]  # wrk(iwx+lx-1) 
+                        y_basis = wrk[iwy + ly - 1]  # wrk(iwy+ly-1)
+                        z[m-1] = z[m-1] + c[coeff_idx] * x_basis * y_basis
                     l2 = l2 + nky1  # l2 = l2+nky1
         else:
-            ier[0] = 10  # nuy > 0 not implemented yet
+            # nuy>0: Y derivative processing - not implemented
+            ier[0] = 10
             return
 
 
