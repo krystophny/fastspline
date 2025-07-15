@@ -292,8 +292,12 @@ def call_parder_safe(tx, ty, c, kx, ky, nux, nuy, x, y):
     # Allocate output arrays
     z = np.zeros(mx * my, dtype=np.float64)
     
-    # Allocate workspace arrays using DIERCKX partitioning plus temp space
-    lwrk = mx * (kx + 1 - nux) + my * (ky + 1 - nuy) + 20  # DIERCKX formula + temp space
+    # Allocate workspace arrays using DIERCKX partitioning
+    # Need space for: coefficients + wx + wy
+    nkx1 = nx - kx - 1
+    nky1 = ny - ky - 1
+    nc = nkx1 * nky1
+    lwrk = nc + mx * (kx + 1 - nux) + my * (ky + 1 - nuy)
     wrk = np.zeros(lwrk, dtype=np.float64)
     kwrk = mx + my
     iwrk = np.zeros(kwrk, dtype=np.int32)
