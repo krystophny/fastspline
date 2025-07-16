@@ -11,8 +11,8 @@ High-performance spline interpolation library with exact scipy compatibility and
 - **Pure Numba cfunc implementations**: Zero-overhead function calls via LLVM-optimized code
 - **Comprehensive spline support**:
   - DIERCKX bivariate splines (bispev, parder)
-  - Sergei's equidistant splines (1D/2D/3D, orders 3-5)
-  - Full derivative support (up to 2nd order)
+  - Sergei's equidistant splines (1D/2D/3D fully implemented, orders 3-5)
+  - Full derivative support (up to 2nd order for 1D, 1st order for 2D/3D)
 - **Blazing fast performance**: Direct cfunc calls eliminate Python overhead
 - **Memory efficient**: Zero-allocation evaluation functions
 
@@ -238,7 +238,9 @@ get_sergei_cfunc_addresses() -> dict
 # - construct_splines_2d: Build 2D spline with workspace
 # - evaluate_splines_2d: Evaluate 2D spline
 # - evaluate_splines_2d_der: Evaluate 2D with partial derivatives
-# - construct_splines_3d: Build 3D spline (placeholder)
+# - construct_splines_3d: Build 3D spline with workspace
+# - evaluate_splines_3d: Evaluate 3D spline
+# - evaluate_splines_3d_der: Evaluate 3D with partial derivatives
 ```
 
 ## Running Tests

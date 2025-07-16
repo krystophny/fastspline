@@ -614,7 +614,7 @@ def evaluate_splines_2d_der_cfunc(order, num_points, periodic, x_min, h_step, co
     dydx2_out[0] = dydx2
 
 
-# ==== 3D SPLINE CONSTRUCTION (PLACEHOLDER) ====
+# ==== 3D SPLINE CONSTRUCTION ====
 @cfunc(types.void(
     types.CPointer(types.float64),      # x_min array (3)
     types.CPointer(types.float64),      # x_max array (3)
@@ -623,16 +623,293 @@ def evaluate_splines_2d_der_cfunc(order, num_points, periodic, x_min, h_step, co
     types.CPointer(types.int32),        # order array (3)
     types.CPointer(types.int32),        # periodic array (3)
     types.CPointer(types.float64),      # output coeff array (flattened)
+    types.CPointer(types.float64),      # workspace array for 1D data
+    types.CPointer(types.float64),      # workspace array for 1D coeffs
+    types.CPointer(types.float64),      # workspace array for 2D construction
 ), nopython=True)
-def construct_splines_3d_cfunc(x_min, x_max, y, num_points, order, periodic, coeff):
-    """Construct 3D spline - placeholder for future implementation"""
-    # For now, just copy input values
+def construct_splines_3d_cfunc(x_min, x_max, y, num_points, order, periodic, coeff, work_1d, work_1d_coeff, work_2d_coeff):
+    """Construct 3D spline using tensor product approach"""
+    
+    # Extract dimensions
     n1 = num_points[0]
     n2 = num_points[1]
     n3 = num_points[2]
+    o1 = order[0]
+    o2 = order[1]
+    o3 = order[2]
     
-    for i in range(n1 * n2 * n3):
-        coeff[i] = y[i]
+    # Calculate h_step for all dimensions
+    h1 = (x_max[0] - x_min[0]) / (n1 - 1)
+    h2 = (x_max[1] - x_min[1]) / (n2 - 1)
+    h3 = (x_max[2] - x_min[2]) / (n3 - 1)
+    
+    # Total size for intermediate storage
+    n12 = n1 * n2
+    n123 = n1 * n2 * n3
+    
+    # Step 1: Apply 1D splines along dimension 3 (for each (i1,i2) line)
+    for i1 in range(n1):
+        for i2 in range(n2):
+            # Extract line along dimension 3
+            for i3 in range(n3):
+                work_1d[i3] = y[i1*n2*n3 + i2*n3 + i3]
+            
+            # Construct 1D spline for this line
+            construct_splines_1d_cfunc(x_min[2], x_max[2], work_1d, n3, o3, periodic[2], work_1d_coeff)
+            
+            # Copy coefficients back
+            for k3 in range(o3 + 1):
+                for i3 in range(n3):
+                    coeff[k3*n123 + i1*n2*n3 + i2*n3 + i3] = work_1d_coeff[k3*n3 + i3]
+    
+    # Step 2: Apply 1D splines along dimension 2 (for each (i1,k3) and each i3)
+    for k3 in range(o3 + 1):
+        for i1 in range(n1):
+            for i3 in range(n3):
+                # Extract line along dimension 2
+                for i2 in range(n2):
+                    work_1d[i2] = coeff[k3*n123 + i1*n2*n3 + i2*n3 + i3]
+                
+                # Construct 1D spline for this line
+                construct_splines_1d_cfunc(x_min[1], x_max[1], work_1d, n2, o2, periodic[1], work_1d_coeff)
+                
+                # Store in temporary 2D coefficient array
+                for k2 in range(o2 + 1):
+                    for i2 in range(n2):
+                        work_2d_coeff[k2*(o3+1)*n123 + k3*n123 + i1*n2*n3 + i2*n3 + i3] = work_1d_coeff[k2*n2 + i2]
+    
+    # Step 3: Apply 1D splines along dimension 1 (for each (k2,k3) and each (i2,i3))
+    for k2 in range(o2 + 1):
+        for k3 in range(o3 + 1):
+            for i2 in range(n2):
+                for i3 in range(n3):
+                    # Extract line along dimension 1
+                    for i1 in range(n1):
+                        work_1d[i1] = work_2d_coeff[k2*(o3+1)*n123 + k3*n123 + i1*n2*n3 + i2*n3 + i3]
+                    
+                    # Construct 1D spline for this line
+                    construct_splines_1d_cfunc(x_min[0], x_max[0], work_1d, n1, o1, periodic[0], work_1d_coeff)
+                    
+                    # Copy final coefficients
+                    for k1 in range(o1 + 1):
+                        for i1 in range(n1):
+                            idx = k1*(o2+1)*(o3+1)*n123 + k2*(o3+1)*n123 + k3*n123 + i1*n2*n3 + i2*n3 + i3
+                            coeff[idx] = work_1d_coeff[k1*n1 + i1]
+
+
+# ==== 3D SPLINE EVALUATION ====
+@cfunc(types.void(
+    types.CPointer(types.int32),        # order array (3)
+    types.CPointer(types.int32),        # num_points array (3)
+    types.CPointer(types.int32),        # periodic array (3)
+    types.CPointer(types.float64),      # x_min array (3)
+    types.CPointer(types.float64),      # h_step array (3)
+    types.CPointer(types.float64),      # coeff array (flattened)
+    types.CPointer(types.float64),      # x array (3)
+    types.CPointer(types.float64)       # output y
+), nopython=True)
+def evaluate_splines_3d_cfunc(order, num_points, periodic, x_min, h_step, coeff, x, y_out):
+    """Evaluate 3D spline at point (x[0], x[1], x[2])"""
+    
+    # Extract parameters
+    o1 = order[0]
+    o2 = order[1]
+    o3 = order[2]
+    n1 = num_points[0]
+    n2 = num_points[1]
+    n3 = num_points[2]
+    n123 = n1 * n2 * n3
+    
+    # Find intervals for all dimensions
+    intervals = [0, 0, 0]
+    x_locals = [0.0, 0.0, 0.0]
+    
+    # Process each dimension
+    for dim in range(3):
+        xj = x[dim]
+        if periodic[dim]:
+            period = h_step[dim] * (num_points[dim] - 1)
+            xj = x[dim] - x_min[dim]
+            if xj < 0:
+                n_periods = int((-xj / period) + 1)
+                xj = xj + period * n_periods
+            elif xj >= period:
+                n_periods = int(xj / period)
+                xj = xj - period * n_periods
+            xj = xj + x_min[dim]
+        
+        x_norm = (xj - x_min[dim]) / h_step[dim]
+        interval = int(x_norm)
+        if interval < 0:
+            interval = 0
+        elif interval >= num_points[dim] - 1:
+            interval = num_points[dim] - 2
+        
+        intervals[dim] = interval
+        x_locals[dim] = (x_norm - interval) * h_step[dim]
+    
+    # Evaluate using tensor product
+    # We evaluate polynomial in order: dimension 3, then 2, then 1
+    y = 0.0
+    
+    # Triple nested Horner's method
+    for k1 in range(o1, -1, -1):
+        # For this k1, evaluate 2D polynomial in (x2, x3)
+        y2d = 0.0
+        
+        for k2 in range(o2, -1, -1):
+            # For this (k1, k2), evaluate 1D polynomial in x3
+            idx_base = k1*(o2+1)*(o3+1)*n123 + k2*(o3+1)*n123 + intervals[0]*n2*n3 + intervals[1]*n3 + intervals[2]
+            
+            y1d = coeff[idx_base + o3*n123]
+            for k3 in range(o3 - 1, -1, -1):
+                y1d = coeff[idx_base + k3*n123] + x_locals[2] * y1d
+            
+            if k2 == o2:
+                y2d = y1d
+            else:
+                y2d = y1d + x_locals[1] * y2d
+        
+        if k1 == o1:
+            y = y2d
+        else:
+            y = y2d + x_locals[0] * y
+    
+    y_out[0] = y
+
+
+# ==== 3D SPLINE DERIVATIVE EVALUATION ====
+@cfunc(types.void(
+    types.CPointer(types.int32),        # order array (3)
+    types.CPointer(types.int32),        # num_points array (3)
+    types.CPointer(types.int32),        # periodic array (3)
+    types.CPointer(types.float64),      # x_min array (3)
+    types.CPointer(types.float64),      # h_step array (3)
+    types.CPointer(types.float64),      # coeff array (flattened)
+    types.CPointer(types.float64),      # x array (3)
+    types.CPointer(types.float64),      # output y
+    types.CPointer(types.float64),      # output dy/dx1
+    types.CPointer(types.float64),      # output dy/dx2
+    types.CPointer(types.float64),      # output dy/dx3
+), nopython=True)
+def evaluate_splines_3d_der_cfunc(order, num_points, periodic, x_min, h_step, coeff, x, y_out, dydx1_out, dydx2_out, dydx3_out):
+    """Evaluate 3D spline and its first derivatives at point (x[0], x[1], x[2])"""
+    
+    # Extract parameters
+    o1 = order[0]
+    o2 = order[1]
+    o3 = order[2]
+    n1 = num_points[0]
+    n2 = num_points[1]
+    n3 = num_points[2]
+    n123 = n1 * n2 * n3
+    
+    # Find intervals for all dimensions
+    intervals = [0, 0, 0]
+    x_locals = [0.0, 0.0, 0.0]
+    
+    # Process each dimension
+    for dim in range(3):
+        xj = x[dim]
+        if periodic[dim]:
+            period = h_step[dim] * (num_points[dim] - 1)
+            xj = x[dim] - x_min[dim]
+            if xj < 0:
+                n_periods = int((-xj / period) + 1)
+                xj = xj + period * n_periods
+            elif xj >= period:
+                n_periods = int(xj / period)
+                xj = xj - period * n_periods
+            xj = xj + x_min[dim]
+        
+        x_norm = (xj - x_min[dim]) / h_step[dim]
+        interval = int(x_norm)
+        if interval < 0:
+            interval = 0
+        elif interval >= num_points[dim] - 1:
+            interval = num_points[dim] - 2
+        
+        intervals[dim] = interval
+        x_locals[dim] = (x_norm - interval) * h_step[dim]
+    
+    # Evaluate value and all three partial derivatives
+    y = 0.0
+    dydx1 = 0.0
+    dydx2 = 0.0
+    dydx3 = 0.0
+    
+    # For the value
+    for k1 in range(o1, -1, -1):
+        y2d = 0.0
+        for k2 in range(o2, -1, -1):
+            idx_base = k1*(o2+1)*(o3+1)*n123 + k2*(o3+1)*n123 + intervals[0]*n2*n3 + intervals[1]*n3 + intervals[2]
+            y1d = coeff[idx_base + o3*n123]
+            for k3 in range(o3 - 1, -1, -1):
+                y1d = coeff[idx_base + k3*n123] + x_locals[2] * y1d
+            if k2 == o2:
+                y2d = y1d
+            else:
+                y2d = y1d + x_locals[1] * y2d
+        if k1 == o1:
+            y = y2d
+        else:
+            y = y2d + x_locals[0] * y
+    
+    # For dy/dx1
+    for k1 in range(o1, 0, -1):
+        y2d = 0.0
+        for k2 in range(o2, -1, -1):
+            idx_base = k1*(o2+1)*(o3+1)*n123 + k2*(o3+1)*n123 + intervals[0]*n2*n3 + intervals[1]*n3 + intervals[2]
+            y1d = coeff[idx_base + o3*n123]
+            for k3 in range(o3 - 1, -1, -1):
+                y1d = coeff[idx_base + k3*n123] + x_locals[2] * y1d
+            if k2 == o2:
+                y2d = y1d
+            else:
+                y2d = y1d + x_locals[1] * y2d
+        if k1 == o1:
+            dydx1 = k1 * y2d
+        else:
+            dydx1 = k1 * y2d + x_locals[0] * dydx1
+    
+    # For dy/dx2
+    for k1 in range(o1, -1, -1):
+        dy2d = 0.0
+        for k2 in range(o2, 0, -1):
+            idx_base = k1*(o2+1)*(o3+1)*n123 + k2*(o3+1)*n123 + intervals[0]*n2*n3 + intervals[1]*n3 + intervals[2]
+            y1d = coeff[idx_base + o3*n123]
+            for k3 in range(o3 - 1, -1, -1):
+                y1d = coeff[idx_base + k3*n123] + x_locals[2] * y1d
+            if k2 == o2:
+                dy2d = k2 * y1d
+            else:
+                dy2d = k2 * y1d + x_locals[1] * dy2d
+        if k1 == o1:
+            dydx2 = dy2d
+        else:
+            dydx2 = dy2d + x_locals[0] * dydx2
+    
+    # For dy/dx3
+    for k1 in range(o1, -1, -1):
+        y2d = 0.0
+        for k2 in range(o2, -1, -1):
+            idx_base = k1*(o2+1)*(o3+1)*n123 + k2*(o3+1)*n123 + intervals[0]*n2*n3 + intervals[1]*n3 + intervals[2]
+            dy1d = o3 * coeff[idx_base + o3*n123]
+            for k3 in range(o3 - 1, 0, -1):
+                dy1d = k3 * coeff[idx_base + k3*n123] + x_locals[2] * dy1d
+            if k2 == o2:
+                y2d = dy1d
+            else:
+                y2d = dy1d + x_locals[1] * y2d
+        if k1 == o1:
+            dydx3 = y2d
+        else:
+            dydx3 = y2d + x_locals[0] * dydx3
+    
+    y_out[0] = y
+    dydx1_out[0] = dydx1
+    dydx2_out[0] = dydx2
+    dydx3_out[0] = dydx3
 
 
 # Export cfunc addresses
@@ -647,4 +924,6 @@ def get_cfunc_addresses():
         'evaluate_splines_2d': evaluate_splines_2d_cfunc.address,
         'evaluate_splines_2d_der': evaluate_splines_2d_der_cfunc.address,
         'construct_splines_3d': construct_splines_3d_cfunc.address,
+        'evaluate_splines_3d': evaluate_splines_3d_cfunc.address,
+        'evaluate_splines_3d_der': evaluate_splines_3d_der_cfunc.address,
     }
