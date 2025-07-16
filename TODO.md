@@ -22,7 +22,37 @@
 - No compilation errors in 1D implementation
 - Direct ctypes access working correctly
 
-## TDD Implementation Plan
+## Path to 2D Splines Implementation
+
+### Current 2D Issue Analysis
+The 2D spline implementation exists but has compilation issues:
+- **List vs Pointer Problem**: Cannot pass Python lists to cfuncs expecting CPointer
+- **Memory Management**: Need to properly handle workspace arrays in cfuncs
+- **Tensor Product Structure**: 2D evaluation requires proper coefficient indexing
+
+### Solution Approach
+1. **Fix cfunc Pointer Issues**: 
+   - Convert 2D workspace management to use only CPointer types
+   - Eliminate all Python list allocations in cfuncs
+   - Use manual indexing instead of pointer arithmetic
+
+2. **Implement Proper 2D Tensor Product**:
+   - First pass: spline over dimension 1 for each row
+   - Second pass: spline over dimension 2 for each column
+   - Proper coefficient storage layout for tensor products
+
+3. **Test 2D Implementation**:
+   - Create comprehensive 2D tests with known analytical functions
+   - Validate against tensor product expectations
+   - Ensure zero-allocation evaluation works correctly
+
+### Next Steps for 2D
+1. Fix compilation issues in `construct_splines_2d_cfunc`
+2. Fix compilation issues in `evaluate_splines_2d_cfunc` 
+3. Implement proper workspace management for 2D
+4. Add 2D test cases to validation suite
+
+## TDD Implementation Plan (Historical - for parder fix)
 
 ### Phase 1: Create Comprehensive Failing Tests
 
