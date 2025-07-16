@@ -33,9 +33,9 @@ def construct_splines_1d_cfunc(x_min, x_max, y, num_points, order, periodic, coe
         # CUBIC SPLINE IMPLEMENTATION
         if periodic == 0:
             # REGULAR CUBIC SPLINE (natural boundary conditions)
-            # Working arrays (stack allocated)
-            al_array = [0.0] * 100
-            bt_array = [0.0] * 100
+            # Working arrays (dynamically allocated)
+            al_array = np.zeros(num_points, dtype=np.float64)
+            bt_array = np.zeros(num_points, dtype=np.float64)
             
             # Initialize
             ak1 = 0.0
@@ -81,9 +81,9 @@ def construct_splines_1d_cfunc(x_min, x_max, y, num_points, order, periodic, coe
             
         else:
             # PERIODIC CUBIC SPLINE
-            # Working arrays
-            al_array = [0.0] * 100
-            bt_array = [0.0] * 100
+            # Working arrays (dynamically allocated)
+            al_array = np.zeros(num_points, dtype=np.float64)
+            bt_array = np.zeros(num_points, dtype=np.float64)
             
             n2 = n - 2
             al_array[0] = 0.0
