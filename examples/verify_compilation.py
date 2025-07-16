@@ -5,7 +5,9 @@ Quick test to verify all cfuncs compile correctly
 
 import numpy as np
 import ctypes
-from sergei_splines_cfunc_final import get_cfunc_addresses
+import sys
+sys.path.insert(0, "../src")
+from fastspline.sergei_splines import get_cfunc_addresses
 
 # Get cfunc addresses
 cfunc_addr = get_cfunc_addresses()

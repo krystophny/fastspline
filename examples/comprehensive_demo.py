@@ -7,7 +7,9 @@ Tests 1D, 2D functionality and derivatives
 import numpy as np
 import matplotlib.pyplot as plt
 import ctypes
-from sergei_splines_cfunc_final import get_cfunc_addresses
+import sys
+sys.path.insert(0, '../src')
+from fastspline.sergei_splines import get_cfunc_addresses
 import time
 
 # Get cfunc addresses
