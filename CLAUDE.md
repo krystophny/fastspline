@@ -84,3 +84,4 @@ The repository is working on validating memory alignment between Fortran and Pyt
 3. Use pre-allocated arrays for performance-critical paths
 4. Test both accuracy and performance for new implementations
 5. Document cfunc signatures clearly as they're called from ctypes
+6. **IMPORTANT**: Always modify existing scripts in-place. Never create multiple versions or collections of scripts. Replace and update existing files directly.

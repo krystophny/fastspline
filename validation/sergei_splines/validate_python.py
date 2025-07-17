@@ -7,34 +7,70 @@ This program replicates the Fortran validation to compare results.
 import numpy as np
 import sys
 import os
+import ctypes
 
 # Add the fastspline source to the path
 sys.path.insert(0, os.path.abspath('../../src'))
 
-try:
-    from fastspline.sergei_splines import (
-        construct_splines_1d, construct_splines_2d, construct_splines_3d,
-        eval_spline_1d, eval_spline_2d, eval_spline_3d,
-        eval_spline_1d_derivative, eval_spline_2d_derivative
-    )
-except ImportError as e:
-    print(f"Import error: {e}")
-    print("Trying direct import of sergei_splines module...")
-    # Try importing the module directly
-    import importlib.util
-    spec = importlib.util.spec_from_file_location("sergei_splines", 
-                                                   "../../src/fastspline/sergei_splines.py")
-    sergei_splines = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(sergei_splines)
-    
-    construct_splines_1d = sergei_splines.construct_splines_1d
-    construct_splines_2d = sergei_splines.construct_splines_2d
-    construct_splines_3d = sergei_splines.construct_splines_3d
-    eval_spline_1d = sergei_splines.eval_spline_1d
-    eval_spline_2d = sergei_splines.eval_spline_2d
-    eval_spline_3d = sergei_splines.eval_spline_3d
-    eval_spline_1d_derivative = sergei_splines.eval_spline_1d_derivative
-    eval_spline_2d_derivative = sergei_splines.eval_spline_2d_derivative
+from fastspline.sergei_splines import get_cfunc_addresses
+
+# Get cfunc addresses
+cfunc_addr = get_cfunc_addresses()
+
+# Set up ctypes functions for 1D splines
+construct_1d = ctypes.CFUNCTYPE(
+    None,
+    ctypes.c_double, ctypes.c_double,
+    ctypes.POINTER(ctypes.c_double),
+    ctypes.c_int32, ctypes.c_int32, ctypes.c_int32,
+    ctypes.POINTER(ctypes.c_double)
+)(cfunc_addr['construct_splines_1d'])
+
+evaluate_1d = ctypes.CFUNCTYPE(
+    None,
+    ctypes.c_int32, ctypes.c_int32, ctypes.c_int32,
+    ctypes.c_double, ctypes.c_double,
+    ctypes.POINTER(ctypes.c_double),
+    ctypes.c_double,
+    ctypes.POINTER(ctypes.c_double)
+)(cfunc_addr['evaluate_splines_1d'])
+
+evaluate_1d_der2 = ctypes.CFUNCTYPE(
+    None,
+    ctypes.c_int32, ctypes.c_int32, ctypes.c_int32,
+    ctypes.c_double, ctypes.c_double,
+    ctypes.POINTER(ctypes.c_double),
+    ctypes.c_double,
+    ctypes.POINTER(ctypes.c_double),
+    ctypes.POINTER(ctypes.c_double),
+    ctypes.POINTER(ctypes.c_double)
+)(cfunc_addr['evaluate_splines_1d_der2'])
+
+# Set up ctypes functions for 2D splines
+construct_2d = ctypes.CFUNCTYPE(
+    None,
+    ctypes.POINTER(ctypes.c_double),
+    ctypes.POINTER(ctypes.c_double),
+    ctypes.POINTER(ctypes.c_double),
+    ctypes.POINTER(ctypes.c_int32),
+    ctypes.POINTER(ctypes.c_int32),
+    ctypes.POINTER(ctypes.c_int32),
+    ctypes.POINTER(ctypes.c_double),
+    ctypes.POINTER(ctypes.c_double),
+    ctypes.POINTER(ctypes.c_double)
+)(cfunc_addr['construct_splines_2d'])
+
+evaluate_2d = ctypes.CFUNCTYPE(
+    None,
+    ctypes.POINTER(ctypes.c_int32),
+    ctypes.POINTER(ctypes.c_int32),
+    ctypes.POINTER(ctypes.c_int32),
+    ctypes.POINTER(ctypes.c_double),
+    ctypes.POINTER(ctypes.c_double),
+    ctypes.POINTER(ctypes.c_double),
+    ctypes.POINTER(ctypes.c_double),
+    ctypes.POINTER(ctypes.c_double)
+)(cfunc_addr['evaluate_splines_2d'])
 
 
 def test_1d_spline():
@@ -44,7 +80,7 @@ def test_1d_spline():
     x_min = 0.0
     x_max = 1.0
     order = 5
-    periodic = False
+    periodic = 0  # 0 for False
     
     # Create test data
     x = np.linspace(x_min, x_max, n)
@@ -65,7 +101,16 @@ def test_1d_spline():
     
     # Construct spline
     print("Constructing 1D spline...")
-    x_min_out, h_step, coeffs = construct_splines_1d(x_min, x_max, y, order, periodic)
+    y_c = (ctypes.c_double * n)(*y)
+    coeff_size = (order + 1) * n  # (order+1) * n
+    coeff_c = (ctypes.c_double * coeff_size)()
+    
+    construct_1d(x_min, x_max, y_c, n, order, periodic, coeff_c)
+    
+    # Convert coefficients to numpy array for easier handling
+    # The coefficients are stored as (order+1, num_points) to match Fortran layout
+    coeffs = np.array([coeff_c[i] for i in range(coeff_size)]).reshape(order + 1, n)
+    h_step = (x_max - x_min) / (n - 1)
     
     # Write spline coefficients
     with open('data/spline_coeffs_1d_python.txt', 'w') as f:
@@ -73,13 +118,13 @@ def test_1d_spline():
         f.write(f'# order = {order}\n')
         f.write(f'# num_points = {n}\n')
         f.write(f'# periodic = {periodic}\n')
-        f.write(f'# x_min = {x_min_out:20.12f}\n')
+        f.write(f'# x_min = {x_min:20.12f}\n')
         f.write(f'# h_step = {h_step:20.12f}\n')
         f.write('# Coefficients shape: {}\n'.format(coeffs.shape))
         f.write('# Coefficients (i, j, coeff[i,j]):\n')
         for i in range(coeffs.shape[0]):
             for j in range(coeffs.shape[1]):
-                f.write(f'{i+1:5d}{j+1:5d}{coeffs[i,j]:20.12f}\n')
+                f.write(f'{i:5d}{j+1:5d}{coeffs[i,j]:20.12f}\n')
     
     # Evaluate spline at test points
     x_eval = np.linspace(x_min, x_max, 21)
@@ -90,7 +135,9 @@ def test_1d_spline():
         f.write('# x, y_spline, y_exact, error\n')
         
         for i in range(len(x_eval)):
-            y_spline = eval_spline_1d(x_eval[i], x_min_out, h_step, coeffs, order, periodic)
+            y_out = (ctypes.c_double * 1)()
+            evaluate_1d(order, n, periodic, x_min, h_step, coeff_c, x_eval[i], y_out)
+            y_spline = y_out[0]
             error = abs(y_spline - y_exact[i])
             f.write(f'{x_eval[i]:20.12f}{y_spline:20.12f}{y_exact[i]:20.12f}{error:20.12f}\n')
     
@@ -100,9 +147,12 @@ def test_1d_spline():
         f.write('# x, dy/dx, d2y/dx2\n')
         
         for i in range(len(x_eval)):
-            dy = eval_spline_1d_derivative(x_eval[i], x_min_out, h_step, coeffs, order, periodic, 1)
-            d2y = eval_spline_1d_derivative(x_eval[i], x_min_out, h_step, coeffs, order, periodic, 2)
-            f.write(f'{x_eval[i]:20.12f}{dy:20.12f}{d2y:20.12f}\n')
+            y_out = (ctypes.c_double * 1)()
+            dy_out = (ctypes.c_double * 1)()
+            d2y_out = (ctypes.c_double * 1)()
+            evaluate_1d_der2(order, n, periodic, x_min, h_step, coeff_c, x_eval[i], 
+                           y_out, dy_out, d2y_out)
+            f.write(f'{x_eval[i]:20.12f}{dy_out[0]:20.12f}{d2y_out[0]:20.12f}\n')
     
     print("1D spline test complete.")
 
@@ -112,10 +162,10 @@ def test_2d_spline():
     # 2D test parameters (matching Fortran)
     nx = 8
     ny = 8
-    x_min = np.array([0.0, 0.0])
-    x_max = np.array([1.0, 1.0])
+    x_min = np.array([0.0, 0.0], dtype=np.float64)
+    x_max = np.array([1.0, 1.0], dtype=np.float64)
     order = np.array([5, 5], dtype=np.int32)
-    periodic = np.array([False, False])
+    periodic = np.array([0, 0], dtype=np.int32)  # 0 for False
     
     # Create 2D test data
     x1 = np.linspace(x_min[0], x_max[0], nx)
@@ -137,16 +187,42 @@ def test_2d_spline():
     
     # Construct 2D spline
     print("Constructing 2D spline...")
-    x_min_out, h_step, coeffs = construct_splines_2d(x_min, x_max, z, order, periodic)
+    
+    # Prepare ctypes arrays
+    x_min_c = x_min.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
+    x_max_c = x_max.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
+    num_points_c = (ctypes.c_int32 * 2)(nx, ny)
+    order_c = order.ctypes.data_as(ctypes.POINTER(ctypes.c_int32))
+    periodic_c = periodic.ctypes.data_as(ctypes.POINTER(ctypes.c_int32))
+    
+    # Flatten z array in Fortran order for compatibility
+    z_flat = z.flatten(order='F')
+    z_c = z_flat.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
+    
+    # Coefficient array size: (order[0]+1) * (order[1]+1) * nx * ny
+    coeff_size = 6 * 6 * nx * ny
+    coeff_c = (ctypes.c_double * coeff_size)()
+    
+    # Workspace arrays
+    workspace_y = (ctypes.c_double * max(nx, ny))()
+    workspace_coeff = (ctypes.c_double * (6 * max(nx, ny)))()
+    
+    construct_2d(x_min_c, x_max_c, z_c, num_points_c, order_c, periodic_c, 
+                 coeff_c, workspace_y, workspace_coeff)
+    
+    # Calculate h_step
+    h_step = np.array([(x_max[0] - x_min[0]) / (nx - 1),
+                       (x_max[1] - x_min[1]) / (ny - 1)])
     
     # Write some coefficient info
     with open('data/spline_info_2d_python.txt', 'w') as f:
         f.write('# 2D Spline info (Python)\n')
-        f.write(f'# x_min_out = {x_min_out}\n')
+        f.write(f'# x_min = {x_min}\n')
+        f.write(f'# x_max = {x_max}\n')
         f.write(f'# h_step = {h_step}\n')
-        f.write(f'# coeffs shape = {coeffs.shape}\n')
-        f.write(f'# coeffs dtype = {coeffs.dtype}\n')
-        f.write(f'# coeffs min/max = {coeffs.min():.12f} / {coeffs.max():.12f}\n')
+        f.write(f'# coeff_size = {coeff_size}\n')
+        coeffs_array = np.array([coeff_c[i] for i in range(coeff_size)])
+        f.write(f'# coeffs min/max = {coeffs_array.min():.12f} / {coeffs_array.max():.12f}\n')
     
     # Evaluate 2D spline at test points
     x1_eval = np.linspace(x_min[0], x_max[0], 11)
@@ -158,8 +234,15 @@ def test_2d_spline():
         
         for i in range(11):
             for j in range(11):
-                x_eval = np.array([x1_eval[i], x2_eval[j]])
-                z_spline = eval_spline_2d(x_eval, x_min_out, h_step, coeffs, order, periodic)
+                x_eval = np.array([x1_eval[i], x2_eval[j]], dtype=np.float64)
+                x_eval_c = x_eval.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
+                h_step_c = h_step.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
+                z_out = (ctypes.c_double * 1)()
+                
+                evaluate_2d(order_c, num_points_c, periodic_c, x_min_c, h_step_c,
+                           coeff_c, x_eval_c, z_out)
+                
+                z_spline = z_out[0]
                 z_exact = np.sin(2.0 * np.pi * x_eval[0]) * np.cos(2.0 * np.pi * x_eval[1])
                 error = abs(z_spline - z_exact)
                 f.write(f'{x_eval[0]:20.12f}{x_eval[1]:20.12f}{z_spline:20.12f}{z_exact:20.12f}{error:20.12f}\n')
