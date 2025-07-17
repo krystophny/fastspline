@@ -703,27 +703,31 @@ def evaluate_splines_2d_cfunc(order, num_points, periodic, x_min, h_step, coeff,
         interval_2 = n2 - 2
     x_local_2 = (x_norm_2 - interval_2) * h_step[1]
     
-    # Evaluate using tensor product
-    # First evaluate along dimension 2 to get coefficients for dimension 1
-    # Using direct evaluation without temporary array
+    # Extract coefficients for this interval - matching Fortran approach exactly
+    # Fortran: coeff_local(:,:) = spl%coeff(:, :, interval_index(1) + 1, interval_index(2) + 1)
     
-    # Initialize result with highest order coefficient in dimension 1
-    y = 0.0
+    # Create coeff_2 array by evaluating along dimension 1 first
+    # Fortran: coeff_2(:) = coeff_local(spl%order(1), 0:spl%order(2))
+    coeff_2 = [0.0] * (o2 + 1)
+    for k2 in range(o2 + 1):
+        # Start with highest order k1 = o1
+        idx = o1*(o2+1)*n1*n2 + k2*n1*n2 + interval_1*n2 + interval_2
+        coeff_2[k2] = coeff[idx]
+        
+        # Evaluate polynomial in x_local_1 using Horner's method
+        # Fortran: coeff_2(:) = coeff_local(k1, :) + x_local(1)*coeff_2
+        for k1 in range(o1 - 1, -1, -1):
+            idx = k1*(o2+1)*n1*n2 + k2*n1*n2 + interval_1*n2 + interval_2
+            coeff_2[k2] = coeff[idx] + x_local_1 * coeff_2[k2]
     
-    # For highest order k1 = o1
-    base_idx = o1*(o2+1)*n1*n2 + interval_1*n2 + interval_2
-    y_temp = coeff[base_idx + o2*n1*n2]
+    # Now evaluate along dimension 2 using coeff_2
+    # Fortran: y = coeff_2(spl%order(2))
+    # Fortran: do k2 = spl%order(2)-1, 0, -1
+    # Fortran:     y = coeff_2(k2) + x_local(2)*y
+    # Fortran: enddo
+    y = coeff_2[o2]
     for k2 in range(o2 - 1, -1, -1):
-        y_temp = coeff[base_idx + k2*n1*n2] + x_local_2 * y_temp
-    y = y_temp
-    
-    # Now accumulate lower orders using Horner's method
-    for k1 in range(o1 - 1, -1, -1):
-        base_idx = k1*(o2+1)*n1*n2 + interval_1*n2 + interval_2
-        y_temp = coeff[base_idx + o2*n1*n2]
-        for k2 in range(o2 - 1, -1, -1):
-            y_temp = coeff[base_idx + k2*n1*n2] + x_local_2 * y_temp
-        y = y_temp + x_local_1 * y
+        y = coeff_2[k2] + x_local_2 * y
     
     y_out[0] = y
 
