@@ -407,18 +407,20 @@ def construct_splines_1d_cfunc(x_min, x_max, y, num_points, order, periodic, coe
                     coeff[n + i] = 0.0
             
             # Final pass for missing coefficients - following Fortran algorithm exactly
-            for i in range(n-3, n):
-                if i > 0:
-                    coeff[n + i] = coeff[n + i-1] + 2.0*coeff[2*n + i-1] + 3.0*coeff[3*n + i-1] + 4.0*coeff[4*n + i-1] + 5.0*coeff[5*n + i-1]  # b[i]
-                    coeff[2*n + i] = coeff[2*n + i-1] + 3.0*coeff[3*n + i-1] + 6.0*coeff[4*n + i-1] + 10.0*coeff[5*n + i-1]  # c[i]
-                    coeff[3*n + i] = coeff[3*n + i-1] + 4.0*coeff[4*n + i-1] + 10.0*coeff[5*n + i-1]  # d[i]
-                    # Calculate f[i] exactly as in Fortran: if(i.ne.n) f(i)= a(i+1)-a(i)-b(i)-c(i)-d(i)-e(i)
-                    if i != n-1:
-                        coeff[5*n + i] = coeff[i+1] - coeff[i] - coeff[n + i] - coeff[2*n + i] - coeff[3*n + i] - coeff[4*n + i]  # f[i]
+            # Fortran: do i=n-3,n means i goes from 7 to 10 (1-based)
+            # In Python 0-based: this should be 6 to 9 (inclusive)
+            for i in range(n-3, n):  # 7 to 9 in 0-based indexing
+                coeff[n + i] = coeff[n + i-1] + 2.0*coeff[2*n + i-1] + 3.0*coeff[3*n + i-1] + 4.0*coeff[4*n + i-1] + 5.0*coeff[5*n + i-1]  # b[i]
+                coeff[2*n + i] = coeff[2*n + i-1] + 3.0*coeff[3*n + i-1] + 6.0*coeff[4*n + i-1] + 10.0*coeff[5*n + i-1]  # c[i]
+                coeff[3*n + i] = coeff[3*n + i-1] + 4.0*coeff[4*n + i-1] + 10.0*coeff[5*n + i-1]  # d[i]
+                # Calculate f[i] exactly as in Fortran: if(i.ne.n) f(i)= a(i+1)-a(i)-b(i)-c(i)-d(i)-e(i)
+                # In 0-based: if i != n-1
+                if i != n-1:
+                    coeff[5*n + i] = coeff[i+1] - coeff[i] - coeff[n + i] - coeff[2*n + i] - coeff[3*n + i] - coeff[4*n + i]  # f[i]
             
-            # f[n] = f[n-1] as in Fortran
+            # f[n] = f[n-1] as in Fortran - but in 0-based indexing
             if n > 1:
-                coeff[5*n + n-1] = coeff[5*n + n-2]  # f[n]
+                coeff[5*n + n-1] = coeff[5*n + n-2]  # f[n-1] = f[n-2] in 0-based
             else:
                 coeff[5*n + n-1] = 0.0
             
