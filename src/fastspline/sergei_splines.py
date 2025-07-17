@@ -605,12 +605,12 @@ def construct_splines_2d_cfunc(x_min, x_max, y, num_points, order, periodic, coe
     h1 = (x_max[0] - x_min[0]) / (n1 - 1)
     h2 = (x_max[1] - x_min[1]) / (n2 - 1)
     
-    # Copy y values to coeff array
-    for i1 in range(n1):
-        for i2 in range(n2):
-            coeff[i1*n2 + i2] = y[i1*n2 + i2]
+    # Initialize coefficient array to zero
+    for i in range((o1+1)*(o2+1)*n1*n2):
+        coeff[i] = 0.0
     
     # Step 1: Apply 1D splines along dimension 2 (for each row)
+    # This matches Fortran: spl%coeff(0, :, i1, :) = splcoe
     for i1 in range(n1):
         # Extract row into workspace
         for i2 in range(n2):
@@ -619,25 +619,34 @@ def construct_splines_2d_cfunc(x_min, x_max, y, num_points, order, periodic, coe
         # Construct 1D spline for this row
         construct_splines_1d_cfunc(x_min[1], x_max[1], workspace_y, n2, o2, periodic[1], workspace_coeff)
         
-        # Copy coefficients back
+        # Copy coefficients back - store at coeff(0, k2, i1, i2)
+        # Fortran: spl%coeff(0, :, i1, :) = splcoe
+        # Python: coeff[k1*(o2+1)*n1*n2 + k2*n1*n2 + i1*n2 + i2] with k1=0
         for k2 in range(o2 + 1):
             for i2 in range(n2):
-                coeff[k2*n1*n2 + i1*n2 + i2] = workspace_coeff[k2*n2 + i2]
+                idx = 0*(o2+1)*n1*n2 + k2*n1*n2 + i1*n2 + i2
+                coeff[idx] = workspace_coeff[k2*n2 + i2]
     
     # Step 2: Apply 1D splines along dimension 1 (for each column and coefficient)
+    # This matches Fortran: splcoe(0,:) = spl%coeff(0, k2, :, i2)
+    #                      spl%coeff(:, k2, :, i2) = splcoe
     for i2 in range(n2):
         for k2 in range(o2 + 1):
-            # Extract column into workspace
+            # Extract column into workspace - get coeff(0, k2, :, i2)
+            # Fortran: splcoe(0,:) = spl%coeff(0, k2, :, i2)
             for i1 in range(n1):
-                workspace_y[i1] = coeff[k2*n1*n2 + i1*n2 + i2]
+                idx = 0*(o2+1)*n1*n2 + k2*n1*n2 + i1*n2 + i2
+                workspace_y[i1] = coeff[idx]
             
             # Construct 1D spline for this column
             construct_splines_1d_cfunc(x_min[0], x_max[0], workspace_y, n1, o1, periodic[0], workspace_coeff)
             
-            # Copy coefficients back
+            # Copy coefficients back - store at coeff(k1, k2, i1, i2)
+            # Fortran: spl%coeff(:, k2, :, i2) = splcoe
             for k1 in range(o1 + 1):
                 for i1 in range(n1):
-                    coeff[k1*(o2+1)*n1*n2 + k2*n1*n2 + i1*n2 + i2] = workspace_coeff[k1*n1 + i1]
+                    idx = k1*(o2+1)*n1*n2 + k2*n1*n2 + i1*n2 + i2
+                    coeff[idx] = workspace_coeff[k1*n1 + i1]
 
 
 # ==== 2D SPLINE EVALUATION ====

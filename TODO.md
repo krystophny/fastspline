@@ -25,10 +25,11 @@
 ### In Progress 🔧
 - [ ] **Fix 2D Spline Implementation**
   - ✅ Comprehensive debugging completed
-  - ✅ Problem isolated to coefficient storage layout
-  - ❌ Coefficient construction vs evaluation mismatch
-  - ❌ Tensor product evaluation order issues
-  - Next: Fix coefficient storage to match Fortran reference
+  - ✅ Problem isolated to evaluation algorithm
+  - ✅ Attempted construction fix to match Fortran tensor product order
+  - ❌ Issue persists - same error after construction fix
+  - ❌ May be Numba cfunc caching or deeper algorithmic issue
+  - Next: Debug coefficient usage in evaluation step-by-step
 
 ## Current Priority
 
@@ -53,11 +54,20 @@ The validation suite (`validation/sergei_splines/`) includes:
 - ✅ Fortran reference implementation 
 - ✅ Python vs Fortran comparison tools
 - ✅ 2D problem identification and debugging tools
-- ❌ 2D splines fix pending
+- ❌ 2D splines fix pending (construction attempted, evaluation issue remains)
 - ❌ 3D splines not tested (likely similar issues)
 
 ### Key Files
 - `VALIDATION_SUMMARY.md` - Complete status and findings
-- `debug_2d_coefficients.py` - 2D coefficient analysis
-- `test_specific_point.py` - Problem point debugging
-- `debug_fortran_problem_point.f90` - Fortran reference validation
+- `debug_2d_coefficients.py` - 2D coefficient analysis (linear case works)
+- `test_specific_point.py` - Problem point debugging with detailed output
+- `debug_fortran_problem_point.f90` - Fortran reference validation (works correctly)
+- `compare_exact_reproduction.py` - Reproduces exact error consistently
+
+### Current 2D Status
+- **Problem**: FastSpline gives -0.656598 vs expected 0.345492 at (0.8, 0.3)
+- **Error**: 1.002090 (sign flip + magnitude) vs Fortran's 0.000243
+- **Linear test**: Works perfectly (z = x + y)
+- **Sin/cos test**: Fails with large errors
+- **Construction fix**: Applied but issue persists
+- **Next**: Deep dive into evaluation algorithm
