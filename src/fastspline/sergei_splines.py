@@ -117,7 +117,7 @@ def construct_splines_1d_cfunc(x_min, x_max, y, num_points, order, periodic, coe
                 coeff[3*n + i] = (coeff[2*n + i+1] - coeff[2*n + i]) / (3.0 * h_step)
                 
     elif order == 4:
-        # Quartic spline implementation
+        # Quartic spline implementation - ported from spl_four_reg
         if periodic:
             # Quartic periodic spline - simplified for now
             # TODO: Implement full spl_four_per algorithm
@@ -127,13 +127,112 @@ def construct_splines_1d_cfunc(x_min, x_max, y, num_points, order, periodic, coe
                 coeff[3*n + i] = 0.0
                 coeff[4*n + i] = 0.0
         else:
-            # Quartic regular spline - simplified for now
-            # TODO: Implement full spl_four_reg algorithm
+            # Quartic regular spline - ported from spl_four_reg
+            # Working arrays
+            alp = np.zeros(n, dtype=np.float64)
+            bet = np.zeros(n, dtype=np.float64)
+            gam = np.zeros(n, dtype=np.float64)
+            
+            # Boundary conditions for d and e at beginning (indices 0, 1, 2)
+            if n >= 5:
+                fpl31 = 0.5 * (coeff[1] + coeff[3]) - coeff[2]
+                fpl40 = 0.5 * (coeff[0] + coeff[4]) - coeff[2]
+                fmn31 = 0.5 * (coeff[3] - coeff[1])
+                fmn40 = 0.5 * (coeff[4] - coeff[0])
+                coeff[3*n + 2] = (fmn40 - 2.0 * fmn31) / 6.0  # d[3]
+                coeff[4*n + 2] = (fpl40 - 4.0 * fpl31) / 12.0  # e[3]
+                coeff[3*n + 1] = coeff[3*n + 2] - 4.0 * coeff[4*n + 2]  # d[2]
+                coeff[3*n + 0] = coeff[3*n + 2] - 8.0 * coeff[4*n + 2]  # d[1]
+            else:
+                # Not enough points for quartic
+                for i in range(n):
+                    coeff[3*n + i] = 0.0
+                    coeff[4*n + i] = 0.0
+            
+            # Forward elimination
+            alp[0] = 0.0
+            bet[0] = coeff[3*n + 0] + coeff[3*n + 1] if n >= 2 else 0.0
+            
+            for i in range(n-3):
+                ip1 = i + 1
+                if abs(10.0 + alp[i]) > 1e-15:
+                    alp[ip1] = -1.0 / (10.0 + alp[i])
+                    if i+3 < n:
+                        fourth_diff = coeff[i+3] - 3.0 * (coeff[i+2] - coeff[i+1]) - coeff[i]
+                        bet[ip1] = alp[ip1] * (bet[i] - 4.0 * fourth_diff)
+                    else:
+                        bet[ip1] = alp[ip1] * bet[i]
+                else:
+                    alp[ip1] = 0.0
+                    bet[ip1] = 0.0
+            
+            # Boundary conditions for d and e at end
+            if n >= 5:
+                fpl31 = 0.5 * (coeff[n-4] + coeff[n-2]) - coeff[n-3]
+                fpl40 = 0.5 * (coeff[n-5] + coeff[n-1]) - coeff[n-3]
+                fmn31 = 0.5 * (coeff[n-2] - coeff[n-4])
+                fmn40 = 0.5 * (coeff[n-1] - coeff[n-5])
+                coeff[3*n + n-3] = (fmn40 - 2.0 * fmn31) / 6.0  # d[n-2]
+                coeff[4*n + n-3] = (fpl40 - 4.0 * fpl31) / 12.0  # e[n-2]
+                coeff[3*n + n-2] = coeff[3*n + n-3] + 4.0 * coeff[4*n + n-3]  # d[n-1]
+                coeff[3*n + n-1] = coeff[3*n + n-3] + 8.0 * coeff[4*n + n-3]  # d[n]
+            
+            # Back substitution
+            if n >= 2:
+                gam[n-2] = coeff[3*n + n-1] + coeff[3*n + n-2] if n >= 2 else 0.0
+            
+            for i in range(n-3, -1, -1):
+                if i+1 < n:
+                    gam[i] = gam[i+1] * alp[i] + bet[i]
+                    coeff[3*n + i] = gam[i] - coeff[3*n + i+1]  # d[i]
+                    coeff[4*n + i] = (coeff[3*n + i+1] - coeff[3*n + i]) / 4.0  # e[i]
+                    
+                    # Calculate c[i]
+                    if i+2 < n:
+                        c_term = 0.5 * (coeff[i+2] + coeff[i]) - coeff[i+1]
+                        if i+2 < n:
+                            c_term -= 0.125 * (coeff[3*n + i+2] + 12.0 * coeff[3*n + i+1] + 11.0 * coeff[3*n + i])
+                        coeff[2*n + i] = c_term  # c[i]
+                    else:
+                        coeff[2*n + i] = 0.0
+                    
+                    # Calculate b[i]
+                    if i+1 < n:
+                        b_term = coeff[i+1] - coeff[i] - coeff[2*n + i]
+                        b_term -= (3.0 * coeff[3*n + i] + coeff[3*n + i+1]) / 4.0
+                        coeff[n + i] = b_term  # b[i]
+                    else:
+                        coeff[n + i] = 0.0
+                else:
+                    coeff[3*n + i] = 0.0
+                    coeff[4*n + i] = 0.0
+                    coeff[2*n + i] = 0.0
+                    coeff[n + i] = 0.0
+            
+            # Final coefficients for last points
+            if n >= 2:
+                coeff[n + n-2] = coeff[n + n-3] + 2.0 * coeff[2*n + n-3] + 3.0 * coeff[3*n + n-3] + 4.0 * coeff[4*n + n-3]  # b[n-1]
+                coeff[2*n + n-2] = coeff[2*n + n-3] + 3.0 * coeff[3*n + n-3] + 6.0 * coeff[4*n + n-3]  # c[n-1]
+                coeff[4*n + n-2] = coeff[n-1] - coeff[n-2] - coeff[n + n-2] - coeff[2*n + n-2] - coeff[3*n + n-2]  # e[n-1]
+            
+            if n >= 1:
+                coeff[n + n-1] = coeff[n + n-2] + 2.0 * coeff[2*n + n-2] + 3.0 * coeff[3*n + n-2] + 4.0 * coeff[4*n + n-2]  # b[n]
+                coeff[2*n + n-1] = coeff[2*n + n-2] + 3.0 * coeff[3*n + n-2] + 6.0 * coeff[4*n + n-2]  # c[n]
+                coeff[4*n + n-1] = coeff[4*n + n-2] if n >= 2 else 0.0  # e[n]
+            
+            # Scale coefficients by powers of 1/h
+            fac = 1.0 / h_step
             for i in range(n):
-                coeff[n + i] = 0.0
-                coeff[2*n + i] = 0.0
-                coeff[3*n + i] = 0.0
-                coeff[4*n + i] = 0.0
+                coeff[n + i] *= fac  # b
+            fac /= h_step
+            for i in range(n):
+                coeff[2*n + i] *= fac  # c
+            fac /= h_step
+            for i in range(n):
+                coeff[3*n + i] *= fac  # d
+            fac /= h_step
+            for i in range(n):
+                coeff[4*n + i] *= fac  # e
             
     elif order == 5:
         # Quintic spline - complete implementation ported from spl_three_to_five.f90
