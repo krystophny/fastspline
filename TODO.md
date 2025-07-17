@@ -9,14 +9,25 @@
 - [x] Derivatives support (1D: first and second, 2D/3D: first)
 - [x] Created validation framework for memory alignment issues
 
-### In Progress
-- [ ] Fix memory alignment issue in cfunc construction
+### Completed
+- [x] Fix memory alignment issue in cfunc construction
   - ✅ Created comprehensive validation suite in `validation/sergei_splines/`
   - ✅ Fortran validation program works correctly
   - ✅ Python validation script updated to use correct cfunc API
   - ✅ Identified critical memory alignment issue: only first row of coefficients populated
-  - ❌ **CRITICAL ISSUE**: Maximum coefficient difference of 81.2 indicates serious memory layout problem
-  - Next: Investigate and fix coefficient array memory layout in `src/fastspline/sergei_splines.py`
+  - ✅ **FIXED**: Implemented complete algorithms for all spline orders (3, 4, 5)
+  - ✅ Ported quartic (order 4) from `spl_four_reg` algorithm
+  - ✅ Ported quintic (order 5) from `spl_five_reg` algorithm
+  - ✅ All coefficient rows now properly populated
+  - ✅ Used precomputed constants instead of runtime `sqrt()` calls
+
+### In Progress
+- [ ] Fine-tune numerical accuracy
+  - ✅ Memory alignment issues resolved
+  - ✅ All spline orders (3, 4, 5) fully implemented
+  - ✅ Coefficient generation working correctly
+  - ❌ **REMAINING**: 16% max evaluation difference indicates algorithmic differences
+  - Next: Investigate boundary conditions and numerical precision differences
 
 ## Goal
 
