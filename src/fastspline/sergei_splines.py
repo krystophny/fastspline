@@ -364,21 +364,36 @@ def construct_splines_1d_cfunc(x_min, x_max, y, num_points, order, periodic, coe
                     alp[ip1] = 0.0
                     bet[ip1] = 0.0
             
-            # Back substitution for e and calculate f
+            # Back substitution for e and calculate f - following Fortran exactly
+            # e[n] = eend + 2.5*5.0*fend
             coeff[4*n + n-1] = eend + 2.5*5.0*fend  # e[n]
+            
+            # e[n-1] = e[n]*alp[n-1] + bet[n-1] 
             coeff[4*n + n-2] = coeff[4*n + n-1]*alp[n-2] + bet[n-2]  # e[n-1]
+            
+            # f[n-1] = (e[n] - e[n-1])/5.0
             coeff[5*n + n-2] = (coeff[4*n + n-1] - coeff[4*n + n-2])/5.0  # f[n-1]
             
+            # e[n-2] = e[n-1]*alp[n-2] + bet[n-2]
             if n >= 3:
                 coeff[4*n + n-3] = coeff[4*n + n-2]*alp[n-3] + bet[n-3]  # e[n-2]
+                
+                # f[n-2] = (e[n-1] - e[n-2])/5.0
                 coeff[5*n + n-3] = (coeff[4*n + n-2] - coeff[4*n + n-3])/5.0  # f[n-2]
+                
+                # d[n-2] = dend + 1.5*4.0*eend + 1.5^2*10.0*fend
                 coeff[3*n + n-3] = dend + 1.5*4.0*eend + 1.5*1.5*10.0*fend  # d[n-2]
             
-            # Calculate remaining coefficients
+            # Main backward loop: do i=n-3,1,-1 (Fortran 1-based)
+            # In Python 0-based: range(n-4, -1, -1) = n-4 down to 0
             for i in range(n-4, -1, -1):
+                # e[i] = e[i+1]*alp[i] + bet[i]
                 coeff[4*n + i] = coeff[4*n + i+1]*alp[i] + bet[i]  # e[i]
+                
+                # f[i] = (e[i+1] - e[i])/5.0
                 coeff[5*n + i] = (coeff[4*n + i+1] - coeff[4*n + i])/5.0  # f[i]
                 
+                # d[i] = (a[i+3] - 3*a[i+2] + 3*a[i+1] - a[i])/6.0 - (e[i+3] + 27*e[i+2] + 93*e[i+1] + 59*e[i])/30.0
                 if i+3 < n:
                     fourth_diff = coeff[i+3] - 3.0*coeff[i+2] + 3.0*coeff[i+1] - coeff[i]
                     e_term = coeff[4*n + i+3] + 27.0*coeff[4*n + i+2] + 93.0*coeff[4*n + i+1] + 59.0*coeff[4*n + i]
@@ -386,6 +401,7 @@ def construct_splines_1d_cfunc(x_min, x_max, y, num_points, order, periodic, coe
                 else:
                     coeff[3*n + i] = 0.0
                 
+                # c[i] = 0.5*(a[i+2] + a[i]) - a[i+1] - 0.5*d[i+1] - 2.5*d[i] - 0.1*(e[i+2] + 18*e[i+1] + 31*e[i])
                 if i+2 < n:
                     c_term = 0.5*(coeff[i+2] + coeff[i]) - coeff[i+1]
                     if i+1 < n:
@@ -398,6 +414,7 @@ def construct_splines_1d_cfunc(x_min, x_max, y, num_points, order, periodic, coe
                 else:
                     coeff[2*n + i] = 0.0
                 
+                # b[i] = a[i+1] - a[i] - c[i] - d[i] - 0.2*(4*e[i] + e[i+1])
                 if i+1 < n:
                     b_term = coeff[i+1] - coeff[i] - coeff[2*n + i] - coeff[3*n + i]
                     e_contrib = 4.0*coeff[4*n + i] + coeff[4*n + i+1]
@@ -406,19 +423,23 @@ def construct_splines_1d_cfunc(x_min, x_max, y, num_points, order, periodic, coe
                 else:
                     coeff[n + i] = 0.0
             
-            # Final pass for missing coefficients - following Fortran algorithm exactly
-            # Fortran: do i=n-3,n means i goes from 7 to 10 (1-based)
-            # In Python 0-based: this should be 6 to 9 (inclusive)
-            for i in range(n-3, n):  # 7 to 9 in 0-based indexing
+            # Final pass for missing coefficients - do i=n-3,n (Fortran 1-based)
+            # In Python 0-based: range(n-3, n) = n-3 to n-1
+            for i in range(n-3, n):
+                # b[i] = b[i-1] + 2*c[i-1] + 3*d[i-1] + 4*e[i-1] + 5*f[i-1]
                 coeff[n + i] = coeff[n + i-1] + 2.0*coeff[2*n + i-1] + 3.0*coeff[3*n + i-1] + 4.0*coeff[4*n + i-1] + 5.0*coeff[5*n + i-1]  # b[i]
+                
+                # c[i] = c[i-1] + 3*d[i-1] + 6*e[i-1] + 10*f[i-1]
                 coeff[2*n + i] = coeff[2*n + i-1] + 3.0*coeff[3*n + i-1] + 6.0*coeff[4*n + i-1] + 10.0*coeff[5*n + i-1]  # c[i]
+                
+                # d[i] = d[i-1] + 4*e[i-1] + 10*f[i-1]
                 coeff[3*n + i] = coeff[3*n + i-1] + 4.0*coeff[4*n + i-1] + 10.0*coeff[5*n + i-1]  # d[i]
-                # Calculate f[i] exactly as in Fortran: if(i.ne.n) f(i)= a(i+1)-a(i)-b(i)-c(i)-d(i)-e(i)
-                # In 0-based: if i != n-1
+                
+                # if(i != n) f[i] = a[i+1] - a[i] - b[i] - c[i] - d[i] - e[i]
                 if i != n-1:
                     coeff[5*n + i] = coeff[i+1] - coeff[i] - coeff[n + i] - coeff[2*n + i] - coeff[3*n + i] - coeff[4*n + i]  # f[i]
             
-            # f[n] = f[n-1] as in Fortran - but in 0-based indexing
+            # f[n] = f[n-1] as in Fortran
             if n > 1:
                 coeff[5*n + n-1] = coeff[5*n + n-2]  # f[n-1] = f[n-2] in 0-based
             else:
