@@ -232,6 +232,32 @@ class TestSplineStability:
         error = abs(y_out[0] - expected)
         assert error < 0.1, f"Quartic evaluation error {error:.2e} too large"
     
+    def test_quartic_periodic_enabled(self):
+        """Test that quartic periodic splines work correctly"""
+        n = 8
+        x_min = 0.0
+        x_max = 1.0
+        h = (x_max - x_min) / n
+        x = np.array([x_min + i * h for i in range(n)])
+        y = np.sin(2*np.pi*x)  # Periodic function
+        
+        coeff = np.zeros(5*n, dtype=np.float64)
+        
+        # Should not raise an error
+        construct_splines_1d_cfunc(x_min, x_max, y, n, 4, True, coeff)
+        
+        # Should evaluate at grid points with machine precision
+        y_out = np.zeros(1)
+        for i in range(n):
+            evaluate_splines_1d_cfunc(4, n, True, x_min, h, coeff, x[i], y_out)
+            error = abs(y_out[0] - y[i])
+            assert error < 1e-12, f"Grid point {i} error {error:.2e} too large"
+        
+        # Should have perfect periodicity
+        evaluate_splines_1d_cfunc(4, n, True, x_min, h, coeff, x_max, y_out)
+        error = abs(y_out[0] - y[0])
+        assert error < 1e-12, f"Periodicity error {error:.2e} too large"
+    
     def test_minimum_points_cubic(self):
         """Test cubic splines work with minimum number of points"""
         n = 4  # Minimum for cubic
