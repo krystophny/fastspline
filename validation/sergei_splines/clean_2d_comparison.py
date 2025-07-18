@@ -23,14 +23,14 @@ def create_clean_2d_comparison():
     nx, ny = 8, 8
     x_data = np.linspace(0, 1, nx)
     y_data = np.linspace(0, 1, ny)
-    X_data, Y_data = np.meshgrid(x_data, y_data)
+    X_data, Y_data = np.meshgrid(x_data, y_data, indexing='ij')
     Z_data = test_function(X_data, Y_data)
     
     # Evaluation grid
     nx_eval, ny_eval = 41, 41
     x_eval = np.linspace(0, 1, nx_eval)
     y_eval = np.linspace(0, 1, ny_eval)
-    X_eval, Y_eval = np.meshgrid(x_eval, y_eval)
+    X_eval, Y_eval = np.meshgrid(x_eval, y_eval, indexing='ij')
     Z_exact = test_function(X_eval, Y_eval)
     
     # Create clean figure with 3 columns, 3 rows
@@ -83,7 +83,7 @@ def create_clean_2d_comparison():
                 z_val = np.zeros(1)
                 evaluate_splines_2d_cfunc(orders_2d, np.array([nx, ny]), periodic_2d, 
                                          x_min, h_step, coeff_2d, x_eval_point, z_val)
-                Z_fastspline[j, i] = z_val[0]
+                Z_fastspline[i, j] = z_val[0]
         
         fastspline_success = True
         print("✓ FastSpline Sergei 2D - Success")
