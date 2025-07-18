@@ -173,9 +173,9 @@ def construct_splines_1d_cfunc(x_min, x_max, y, num_points, order, periodic, coe
             coeff[3*n + nmx-1] = (coeff[2*n + 0] - coeff[2*n + nmx-1]) / h_step / 3.0
             
             # Fix periodicity boundary - exactly as in Fortran
-            coeff[n + n-1] = coeff[n + 0]
-            coeff[2*n + n-1] = coeff[2*n + 0]
-            coeff[3*n + n-1] = coeff[3*n + 0]
+            coeff[n + n-1] = coeff[n + 0]   # b coefficients periodic
+            coeff[2*n + n-1] = coeff[2*n + 0] # c coefficients periodic
+            coeff[3*n + n-1] = coeff[3*n + 0] # d coefficients periodic
                 
     elif order == 4:
         # Quartic splines temporarily disabled due to mathematical property issues
