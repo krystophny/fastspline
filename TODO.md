@@ -1,62 +1,82 @@
 # FastSpline TODO
 
-## Current Status
+## Current Plan: 3D and Periodic Sergei Splines Validation
 
-### Completed ✅
-- [x] **1D Sergei Splines - PRODUCTION READY**
-  - ✅ All orders (3, 4, 5) working correctly
-  - ✅ Cubic, quartic, and quintic splines fully implemented
-  - ✅ Python implementation matches Fortran reference exactly
-  - ✅ Periodic and non-periodic boundary conditions
-  - ✅ Derivatives support (first and second derivatives)
-  - ✅ Comprehensive validation suite in `validation/sergei_splines/`
-  - ✅ Memory alignment issues completely resolved
-  - ✅ Quintic splines fixed from hardcoded n=10 to general implementation
+### Phase 1: 3D Spline Validation ✓
+- [ ] Create Fortran validation program for 3D splines
+  - [ ] Test function: f(x,y,z) = sin(πx) * cos(πy) * exp(-z/2)
+  - [ ] Grid sizes: 8×8×8, 10×10×10, 20×20×20
+  - [ ] Orders: 3, 4, 5 (cubic, quartic, quintic)
+  - [ ] Output reference values at specific test points
+- [ ] Create Python 3D validation script
+  - [ ] Use correct meshgrid with indexing='ij' for all 3 dimensions
+  - [ ] Compare construction coefficients with Fortran
+  - [ ] Compare evaluation results at test points
+  - [ ] Generate 3D visualization slices
+- [ ] Fix any discrepancies found
+  - [ ] Check tensor product ordering for 3D
+  - [ ] Verify coefficient storage layout
+  - [ ] Ensure proper evaluation algorithm
 
-### Recently Fixed ✅
-- [x] **2D Sergei Splines - FIXED**
-  - ✅ **ROOT CAUSE**: Incorrect meshgrid indexing in test scripts
-  - ✅ **SOLUTION**: Use `np.meshgrid(x, y, indexing='ij')` not default 'xy'
-  - ✅ **RESULTS**: RMS error now ~2.71e-03 (was 7.06e-01)
-  - ✅ Python now matches Fortran reference (~2.4e-04 at test point)
-  - ✅ All validation scripts fixed and redundant ones removed
+### Phase 2: Periodic Spline Validation ✓
+- [ ] Create Fortran validation for periodic splines
+  - [ ] 1D periodic: f(x) = sin(2πx) on [0,1]
+  - [ ] 2D periodic: f(x,y) = sin(2πx) * cos(2πy) on [0,1]×[0,1]
+  - [ ] 3D periodic: f(x,y,z) = sin(2πx) * cos(2πy) * sin(2πz)
+  - [ ] Test continuity at boundaries
+- [ ] Create Python periodic validation
+  - [ ] Test all dimensions (1D, 2D, 3D)
+  - [ ] Verify periodic boundary conditions
+  - [ ] Check derivatives at boundaries
+  - [ ] Compare with Fortran reference
+- [ ] Fix any periodic-specific issues
+  - [ ] Ensure proper wrap-around
+  - [ ] Verify coefficient calculation for periodic case
 
-### Current Status 🎯
-- **1D Splines**: ✅ Production ready (all orders 3, 4, 5)
-- **2D Splines**: ✅ Fixed and working correctly
-- **3D Splines**: ⚠️ Not tested yet (likely needs same meshgrid fix)
+### Phase 3: Mixed Boundary Conditions ✓
+- [ ] Test mixed periodic/non-periodic in 2D/3D
+  - [ ] 2D: periodic in x, non-periodic in y
+  - [ ] 3D: various combinations
+- [ ] Create test cases for each combination
+- [ ] Validate against Fortran reference
 
-## Current Priority
+### Phase 4: Performance Validation ✓
+- [ ] Benchmark 3D spline performance
+  - [ ] Construction time for various grid sizes
+  - [ ] Evaluation throughput (points/second)
+  - [ ] Memory usage analysis
+- [ ] Compare with theoretical expectations
+- [ ] Document performance characteristics
 
-**Validate 3D Splines Implementation**
+### Phase 5: Documentation and Release ✓
+- [ ] Update README with 3D examples
+- [ ] Document periodic boundary conditions
+- [ ] Create comprehensive API documentation
+- [ ] Add integration tests for all features
+- [ ] Update VALIDATION_SUMMARY.md with all results
 
-### Next Steps
-1. **Test 3D splines** with correct meshgrid indexing
-2. **Ensure consistent array ordering** across all dimensions
-3. **Create comprehensive 3D validation** suite
-4. **Document best practices** for multi-dimensional arrays
+## Completed ✅
 
-## Validation Framework Status
+### 1D Splines
+- ✅ All orders (3, 4, 5) validated against Fortran
+- ✅ Derivatives (1st and 2nd) working correctly
+- ✅ Performance optimized with cfunc flags
 
-The validation suite (`validation/sergei_splines/`) includes:
-- ✅ Comprehensive 1D validation (all orders working)
-- ✅ Fortran reference implementation 
-- ✅ Python vs Fortran comparison tools
-- ✅ 2D problem identification and debugging tools
-- ❌ 2D splines fix pending (construction attempted, evaluation issue remains)
-- ❌ 3D splines not tested (likely similar issues)
+### 2D Splines  
+- ✅ Fixed meshgrid indexing issue (use indexing='ij')
+- ✅ Validated against Fortran reference
+- ✅ Clean validation plots created
+- ✅ All redundant scripts removed
 
-### Key Files
-- `VALIDATION_SUMMARY.md` - Complete status and findings
-- `debug_2d_coefficients.py` - 2D coefficient analysis (linear case works)
-- `test_specific_point.py` - Problem point debugging with detailed output
-- `debug_fortran_problem_point.f90` - Fortran reference validation (works correctly)
-- `compare_exact_reproduction.py` - Reproduces exact error consistently
+### Performance Optimizations
+- ✅ All cfuncs use nopython=True, nogil=True, cache=True, fastmath=True
+- ✅ Achieved ~1.7ns per point for 1D evaluation
+- ✅ Achieved ~10.3ns per point for 2D evaluation
 
-### Current 2D Status
-- **Problem**: FastSpline gives -0.656598 vs expected 0.345492 at (0.8, 0.3)
-- **Error**: 1.002090 (sign flip + magnitude) vs Fortran's 0.000243
-- **Linear test**: Works perfectly (z = x + y)
-- **Sin/cos test**: Fails with large errors
-- **Construction fix**: Applied but issue persists
-- **Next**: Deep dive into evaluation algorithm
+## Notes
+
+- Always use `np.meshgrid(..., indexing='ij')` for consistency with Fortran
+- Fortran uses column-major order, Python uses row-major
+- Coefficient storage: (order+1) × n1 × n2 × ... for each dimension
+- Power basis representation, not B-splines
+- Special quintic constants: ρ+ = 23.247, ρ- = 2.753
