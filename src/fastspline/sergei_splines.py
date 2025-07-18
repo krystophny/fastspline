@@ -26,7 +26,10 @@ RHOM = 2.753049234040402   # 13.0 - sqrt(105.0)
 def construct_splines_1d_cfunc(x_min, x_max, y, num_points, order, periodic, coeff):
     """Construct 1D spline - complete implementation with inlined algorithms"""
     
-    h_step = (x_max - x_min) / (num_points - 1)
+    if periodic:
+        h_step = (x_max - x_min) / num_points
+    else:
+        h_step = (x_max - x_min) / (num_points - 1)
     n = num_points
     
     # Copy y values to first row of coefficient array
@@ -524,7 +527,7 @@ def evaluate_splines_1d_cfunc(order, num_points, periodic, x_min, h_step, coeff,
     # Find interval
     xj = x
     if periodic:
-        period = h_step * (num_points - 1)
+        period = h_step * num_points
         # Manual modulo for periodic boundary
         xj = x - x_min
         if xj < 0:
@@ -759,7 +762,7 @@ def evaluate_splines_1d_der_cfunc(order, num_points, periodic, x_min, h_step, co
     # Find interval (same as evaluation)
     xj = x
     if periodic:
-        period = h_step * (num_points - 1)
+        period = h_step * num_points
         xj = x - x_min
         if xj < 0:
             n_periods = int((-xj / period) + 1)
@@ -820,7 +823,7 @@ def evaluate_splines_1d_der2_cfunc(order, num_points, periodic, x_min, h_step, c
     # Find interval (same as evaluation)
     xj = x
     if periodic:
-        period = h_step * (num_points - 1)
+        period = h_step * num_points
         xj = x - x_min
         if xj < 0:
             n_periods = int((-xj / period) + 1)
