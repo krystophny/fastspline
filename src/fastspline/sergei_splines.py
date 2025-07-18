@@ -178,87 +178,9 @@ def construct_splines_1d_cfunc(x_min, x_max, y, num_points, order, periodic, coe
             coeff[3*n + n-1] = coeff[3*n + 0]
                 
     elif order == 4:
-        # Quartic spline implementation - ported from spl_four_reg
-        if periodic:
-            # Quartic periodic spline - simplified for now
-            # TODO: Implement full spl_four_per algorithm
-            for i in range(n):
-                coeff[n + i] = 0.0
-                coeff[2*n + i] = 0.0
-                coeff[3*n + i] = 0.0
-                coeff[4*n + i] = 0.0
-        else:
-            # Quartic regular spline - EXACT port from Fortran spl_four_reg
-            # Working arrays
-            alp = np.zeros(n, dtype=np.float64)
-            bet = np.zeros(n, dtype=np.float64)
-            gam = np.zeros(n, dtype=np.float64)
-            
-            # Temporary arrays for coefficients (using same names as Fortran)
-            a = np.empty(n, dtype=np.float64)
-            for i in range(n):
-                a[i] = coeff[i]  # Input y values
-            b = np.zeros(n, dtype=np.float64)
-            c = np.zeros(n, dtype=np.float64)
-            d = np.zeros(n, dtype=np.float64)
-            e = np.zeros(n, dtype=np.float64)
-            
-            # Beginning boundary conditions - EXACTLY as in Fortran
-            fpl31 = 0.5 * (a[1] + a[3]) - a[2]
-            fpl40 = 0.5 * (a[0] + a[4]) - a[2]
-            fmn31 = 0.5 * (a[3] - a[1])
-            fmn40 = 0.5 * (a[4] - a[0])
-            d[2] = (fmn40 - 2.0 * fmn31) / 6.0
-            e[2] = (fpl40 - 4.0 * fpl31) / 12.0
-            d[1] = d[2] - 4.0 * e[2]
-            d[0] = d[2] - 8.0 * e[2]
-            
-            # Forward elimination - EXACTLY as in Fortran
-            alp[0] = 0.0
-            bet[0] = d[0] + d[1]
-            
-            for i in range(n-3):
-                ip1 = i + 1
-                alp[ip1] = -1.0 / (10.0 + alp[i])
-                fourth_diff = a[i+3] - 3.0 * (a[i+2] - a[ip1]) - a[i]
-                bet[ip1] = alp[ip1] * (bet[i] - 4.0 * fourth_diff)
-            
-            # End boundary conditions - EXACTLY as in Fortran
-            fpl31 = 0.5 * (a[n-4] + a[n-2]) - a[n-3]
-            fpl40 = 0.5 * (a[n-5] + a[n-1]) - a[n-3]
-            fmn31 = 0.5 * (a[n-2] - a[n-4])
-            fmn40 = 0.5 * (a[n-1] - a[n-5])
-            d[n-3] = (fmn40 - 2.0 * fmn31) / 6.0
-            e[n-3] = (fpl40 - 4.0 * fpl31) / 12.0
-            d[n-2] = d[n-3] + 4.0 * e[n-3]
-            d[n-1] = d[n-3] + 8.0 * e[n-3]
-            
-            # Back substitution - EXACTLY as in Fortran
-            gam[n-2] = d[n-1] + d[n-2]
-            
-            # Fortran: do i=n-2,1,-1 which is n-2 down to 1 (1-based)
-            # Python: range(n-3, -1, -1) which is n-3 down to 0 (0-based)
-            for i in range(n-3, -1, -1):
-                gam[i] = gam[i+1] * alp[i] + bet[i]
-                d[i] = gam[i] - d[i+1]
-                e[i] = (d[i+1] - d[i]) / 4.0
-                c[i] = 0.5 * (a[i+2] + a[i]) - a[i+1] - 0.125 * (d[i+2] + 12.0*d[i+1] + 11.0*d[i])
-                b[i] = a[i+1] - a[i] - c[i] - (3.0*d[i] + d[i+1]) / 4.0
-            
-            # Final coefficients - EXACTLY as in Fortran
-            # Fortran: b(n-1)=b(n-2)+2.d0*c(n-2)+3.d0*d(n-2)+4.d0*e(n-2)
-            # Python:  b[n-2]=b[n-3]+2.0*c[n-3]+3.0*d[n-3]+4.0*e[n-3] (0-based)
-            b[n-2] = b[n-3] + 2.0*c[n-3] + 3.0*d[n-3] + 4.0*e[n-3]
-            c[n-2] = c[n-3] + 3.0*d[n-3] + 6.0*e[n-3]
-            
-            # No scaling for quartic - coefficients are already normalized
-            
-            # Copy back to coefficient array
-            for i in range(n):
-                coeff[n + i] = b[i]
-                coeff[2*n + i] = c[i]
-                coeff[3*n + i] = d[i]
-                coeff[4*n + i] = e[i]
+        # Quartic splines temporarily disabled due to mathematical property issues
+        # Use cubic or quintic splines instead
+        raise ValueError("Quartic (4th order) splines are temporarily disabled. Use order=3 or order=5 instead.")
             
     elif order == 5:
         # Quintic spline - complete implementation ported from spl_three_to_five.f90
