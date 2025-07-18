@@ -1,66 +1,67 @@
 # FastSpline TODO
 
-## Current Plan: 3D and Periodic Sergei Splines Validation
+## Current Plan: Achieve Perfect Double Precision Fortran Matching
 
-### Phase 1: 3D Spline Validation ✓
-- [x] Create Fortran validation program for 3D splines
-  - [x] Test function: f(x,y,z) = sin(πx) * cos(πy) * exp(-z/2)
-  - [x] Grid sizes: 8×8×8 tested
-  - [x] Orders: 3, 4, 5 (cubic, quartic, quintic)
-  - [x] Output reference values at specific test points
-- [x] Create Python 3D validation script
-  - [x] Use correct meshgrid with indexing='ij' for all 3 dimensions
-  - [x] Compare construction coefficients with Fortran
-  - [x] Compare evaluation results at test points
-  - [x] Generate 3D visualization slices (ready when quintic fixed)
-- [ ] Fix discrepancies found
-  - [x] Cubic (order 3): ✅ Max error 1.5e-03 
-  - [x] Quartic (order 4): ✅ Max error 1.2e-04
-  - [ ] Quintic (order 5): ❌ Large errors ~2.3, needs fix
+### CRITICAL: Double Precision Validation Status
 
-### Phase 2: Periodic Spline Validation ✓
-- [ ] Create Fortran validation for periodic splines
-  - [ ] 1D periodic: f(x) = sin(2πx) on [0,1]
-  - [ ] 2D periodic: f(x,y) = sin(2πx) * cos(2πy) on [0,1]×[0,1]
-  - [ ] 3D periodic: f(x,y,z) = sin(2πx) * cos(2πy) * sin(2πz)
-  - [ ] Test continuity at boundaries
-- [ ] Create Python periodic validation
-  - [ ] Test all dimensions (1D, 2D, 3D)
-  - [ ] Verify periodic boundary conditions
-  - [ ] Check derivatives at boundaries
-  - [ ] Compare with Fortran reference
-- [ ] Fix any periodic-specific issues
-  - [ ] Ensure proper wrap-around
-  - [ ] Verify coefficient calculation for periodic case
+**Requirement**: All spline implementations must achieve double precision (1e-15 level) matching with Fortran reference implementations.
 
-### Phase 3: Mixed Boundary Conditions ✓
-- [ ] Test mixed periodic/non-periodic in 2D/3D
-  - [ ] 2D: periodic in x, non-periodic in y
-  - [ ] 3D: various combinations
-- [ ] Create test cases for each combination
-- [ ] Validate against Fortran reference
+**Current Status**:
+- ✅ **Cubic Regular**: 6.70e-17 error (PERFECT double precision)
+- ⚠️ **Cubic Periodic**: 4.87e-12 error (needs improvement to 1e-15)
+- ⚠️ **Quintic Regular**: 1.17e-04 error (needs improvement to 1e-15)
+- ❌ **Quintic Periodic**: Not implemented/tested
 
-### Phase 4: Performance Validation ✓
-- [ ] Benchmark 3D spline performance
-  - [ ] Construction time for various grid sizes
-  - [ ] Evaluation throughput (points/second)
-  - [ ] Memory usage analysis
-- [ ] Compare with theoretical expectations
-- [ ] Document performance characteristics
+### Phase 1: Fix Cubic Periodic Double Precision
+- [ ] Debug cubic periodic construction to achieve 1e-15 precision
+- [ ] Test both construction coefficients and evaluation results
+- [ ] Add pytest test requiring error < 1e-14
+- [ ] Validate against Fortran periodic cubic reference
 
-### Phase 5: Documentation and Release ✓
-- [ ] Update README with 3D examples
-- [ ] Document periodic boundary conditions
-- [ ] Create comprehensive API documentation
-- [ ] Add integration tests for all features
-- [ ] Update VALIDATION_SUMMARY.md with all results
+### Phase 2: Fix Quintic Regular Double Precision  
+- [ ] Debug quintic regular construction to achieve 1e-15 precision
+- [ ] Test both construction coefficients and evaluation results
+- [ ] Add pytest test requiring error < 1e-14
+- [ ] Validate against Fortran quintic reference
+
+### Phase 3: Implement Quintic Periodic
+- [ ] Implement quintic periodic spline construction
+- [ ] Create Fortran reference for quintic periodic
+- [ ] Achieve 1e-15 precision matching
+- [ ] Add comprehensive pytest tests
+
+### Phase 4: Comprehensive Testing Criteria
+For each spline type (cubic/quintic × regular/periodic):
+- [ ] **Construction precision**: Coefficients match Fortran at 1e-15 level
+- [ ] **Evaluation precision**: Function values match Fortran at 1e-15 level
+- [ ] **Boundary conditions**: Perfect continuity for periodic cases
+- [ ] **Multiple test points**: Precision maintained across domain
+- [ ] **pytest integration**: All tests automated with strict thresholds
+
+### Success Criteria
+**BEFORE completion, ALL must be true**:
+- [ ] Cubic regular: construction + evaluation < 1e-14 error
+- [ ] Cubic periodic: construction + evaluation < 1e-14 error  
+- [ ] Quintic regular: construction + evaluation < 1e-14 error
+- [ ] Quintic periodic: construction + evaluation < 1e-14 error
+- [ ] All 4 cases have pytest tests with strict error thresholds
+- [ ] All tests pass consistently
 
 ## Completed ✅
 
-### 1D Splines
-- ✅ All orders (3, 4, 5) validated against Fortran
-- ✅ Derivatives (1st and 2nd) working correctly
-- ✅ Performance optimized with cfunc flags
+### Quartic Splines Management
+- ✅ Quartic (4th order) splines disabled due to mathematical property issues
+- ✅ Clear error message directs users to cubic or quintic alternatives
+
+### SciPy Competition Validation
+- ✅ Cubic splines perfectly competitive with SciPy (1.00x performance ratio)
+- ✅ Identical results on smooth functions and noisy data
+- ✅ 12 comprehensive pytest tests all passing
+
+### Performance Optimizations
+- ✅ All cfuncs use nopython=True, nogil=True, cache=True, fastmath=True
+- ✅ Verified cfunc usage EVERYWHERE in sergei splines
+- ✅ All function addresses properly exposed via get_cfunc_addresses()
 
 ### 2D Splines  
 - ✅ Fixed meshgrid indexing issue (use indexing='ij')
@@ -68,15 +69,11 @@
 - ✅ Clean validation plots created
 - ✅ All redundant scripts removed
 
-### Performance Optimizations
-- ✅ All cfuncs use nopython=True, nogil=True, cache=True, fastmath=True
-- ✅ Achieved ~1.7ns per point for 1D evaluation
-- ✅ Achieved ~10.3ns per point for 2D evaluation
-
 ## Notes
 
+- **Double precision**: Requires error < 1e-14 to account for numerical tolerance
+- **Test both**: Construction (coefficients) AND evaluation (function values)
+- **Fortran reference**: Must have exact comparison with validated Fortran code
 - Always use `np.meshgrid(..., indexing='ij')` for consistency with Fortran
-- Fortran uses column-major order, Python uses row-major
 - Coefficient storage: (order+1) × n1 × n2 × ... for each dimension
 - Power basis representation, not B-splines
-- Special quintic constants: ρ+ = 23.247, ρ- = 2.753
