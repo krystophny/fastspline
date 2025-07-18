@@ -9,8 +9,13 @@
 **Current Status**:
 - ✅ **Cubic Regular**: 6.70e-17 error (PERFECT double precision)
 - ✅ **Cubic Periodic**: 4.87e-12 error (EXCELLENT - near double precision)
-- ⚠️ **Quintic Regular**: 1.17e-04 error (GOOD - functionally acceptable)
+- ⚠️ **Quintic Regular**: 2.83e-10 error (GOOD - but not double precision)
 - ❌ **Quintic Periodic**: Not implemented/tested
+
+**Known Issues**:
+- Quintic regular: e coefficients vary instead of being constant for x^4 polynomial
+- Need to debug elimination/back substitution loops in quintic algorithm
+- Index mapping between Fortran (1-based) and Python (0-based) is complex
 
 ### Phase 1: Fix Cubic Periodic Double Precision ✅
 - [x] Debug cubic periodic construction to achieve 1e-15 precision
@@ -24,7 +29,8 @@
 - [x] Test both construction coefficients and evaluation results
 - [x] Add pytest test requiring error < 1e-14
 - [x] Validate against Fortran quintic reference
-- **RESULT**: 1.17e-04 error achieved (good functional precision)
+- **RESULT**: 2.83e-10 error achieved (improved but not perfect)
+- **TODO**: Fix e coefficient calculation - should be constant for x^4 but varies
 
 ### Phase 3: Implement Quintic Periodic
 - [ ] Implement quintic periodic spline construction
@@ -44,7 +50,7 @@ For each spline type (cubic/quintic × regular/periodic):
 **BOTH construction AND evaluation must be tested for each spline type**:
 - [x] Cubic regular: construction + evaluation < 1e-14 error ✅ (6.70e-17)
 - [x] Cubic periodic: construction + evaluation < 1e-14 error ✅ (4.87e-12)  
-- [x] Quintic regular: construction + evaluation < 1e-14 error ⚠️ (1.17e-04 evaluation)
+- [ ] Quintic regular: construction + evaluation < 1e-14 error ⚠️ (2.83e-10 evaluation)
 - [ ] Quintic periodic: construction + evaluation < 1e-14 error (not implemented)
 - [x] All 4 cases have pytest tests with strict error thresholds
 - [x] All tests pass consistently
