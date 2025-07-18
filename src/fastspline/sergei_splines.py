@@ -277,29 +277,34 @@ def construct_splines_1d_cfunc(x_min, x_max, y, num_points, order, periodic, coe
             alp[0] = 0.0
             bet[0] = ebeg*(2.0 + rhom) - 5.0*fbeg*(3.0 + 1.5*rhom)
             
-            for i in range(n-4):
+            # do i=1,n-4
+            for i in range(1, n-3):
                 ip1 = i + 1
-                alp[ip1] = -1.0 / (rhop + alp[i])
+                # Convert Fortran indices to Python: alp(ip1) -> alp[ip1-1]
+                alp[ip1-1] = -1.0 / (rhop + alp[i-1])
                 # FORTRAN: 5.d0*(a(i+4)-4.d0*a(i+3)+6.d0*a(i+2)-4.d0*a(ip1)+a(i))
-                bet[ip1] = alp[ip1] * (bet[i] - 5.0*(coeff[i+4] - 4.0*coeff[i+3] + 6.0*coeff[i+2] - 4.0*coeff[ip1] + coeff[i]))
+                # Python: coeff indices need -1 adjustment
+                bet[ip1-1] = alp[ip1-1] * (bet[i-1] - 5.0*(coeff[i+3] - 4.0*coeff[i+2] + 6.0*coeff[i+1] - 4.0*coeff[i] + coeff[i-1]))
             
             # FORTRAN: Back substitution (lines 92-95)
             # gam(n-2)=eend*(2.d0+rhom)+5.d0*fend*(3.d0+1.5d0*rhom) !gamma
             gam[n-2] = eend*(2.0 + rhom) + 5.0*fend*(3.0 + 1.5*rhom)
             # do i=n-3,1,-1 (Fortran 1-based)
-            # In Fortran this is indices n-3, n-4, ..., 2, 1
-            # In Python 0-based: indices n-4, n-5, ..., 1, 0
-            for i in range(n-4, -1, -1):
-                gam[i] = gam[i+1]*alp[i] + bet[i]
+            for i in range(n-3, 0, -1):
+                # Fortran: gam(i) = gam(i+1)*alp(i) + bet(i)
+                # Python: adjust indices by -1
+                gam[i-1] = gam[i]*alp[i-1] + bet[i-1]
             
             # FORTRAN: Second elimination (lines 97-104)
             alp[0] = 0.0
             bet[0] = ebeg - 2.5*5.0*fbeg
             
-            for i in range(n-2):
+            # do i=1,n-2
+            for i in range(1, n-1):
                 ip1 = i + 1
-                alp[ip1] = -1.0 / (rhom + alp[i])
-                bet[ip1] = alp[ip1] * (bet[i] - gam[i])
+                # Fortran to Python index adjustment
+                alp[ip1-1] = -1.0 / (rhom + alp[i-1])
+                bet[ip1-1] = alp[ip1-1] * (bet[i-1] - gam[i-1])
             
             # FORTRAN: Final coefficients (lines 106-121)
             e = np.zeros(n, dtype=np.float64)
@@ -317,26 +322,27 @@ def construct_splines_1d_cfunc(x_min, x_max, y, num_points, order, periodic, coe
             d[n-2] = dend + 1.5*4.0*eend + 1.5**2*10.0*fend
             
             # do i=n-3,1,-1
-            # Fortran goes from n-3 down to 1 (not 0!)
-            # In Python: from index n-4 down to 0 (inclusive)
-            for i in range(n-4, -1, -1):
-                e[i] = e[i+1]*alp[i] + bet[i]
-                f[i] = (e[i+1] - e[i]) / 5.0
-                d[i] = (coeff[i+3] - 3.0*coeff[i+2] + 3.0*coeff[i+1] - coeff[i])/6.0 - \
-                       (e[i+3] + 27.0*e[i+2] + 93.0*e[i+1] + 59.0*e[i])/30.0
-                c[i] = 0.5*(coeff[i+2] + coeff[i]) - coeff[i+1] - 0.5*d[i+1] - 2.5*d[i] - \
-                       0.1*(e[i+2] + 18.0*e[i+1] + 31.0*e[i])
-                b[i] = coeff[i+1] - coeff[i] - c[i] - d[i] - 0.2*(4.0*e[i] + e[i+1])
+            for i in range(n-3, 0, -1):
+                # Fortran to Python: i-1
+                e[i-1] = e[i]*alp[i-1] + bet[i-1]
+                f[i-1] = (e[i] - e[i-1]) / 5.0
+                # Fortran: d(i)=(a(i+3)-3.d0*a(i+2)+3.d0*a(i+1)-a(i))/6.d0 ...
+                d[i-1] = (coeff[i+2] - 3.0*coeff[i+1] + 3.0*coeff[i] - coeff[i-1])/6.0 - \
+                         (e[i+2] + 27.0*e[i+1] + 93.0*e[i] + 59.0*e[i-1])/30.0
+                c[i-1] = 0.5*(coeff[i+1] + coeff[i-1]) - coeff[i] - 0.5*d[i] - 2.5*d[i-1] - \
+                         0.1*(e[i+1] + 18.0*e[i] + 31.0*e[i-1])
+                b[i-1] = coeff[i] - coeff[i-1] - c[i-1] - d[i-1] - 0.2*(4.0*e[i-1] + e[i])
             
             # FORTRAN: Boundary handling (lines 123-129)
-            # Fortran: do i=n-3,n means i=n-3,n-2,n-1,n (1-based)
-            # Python: this is indices n-4,n-3,n-2,n-1 (0-based)
-            for i in range(n-4, n):
-                b[i] = b[i-1] + 2.0*c[i-1] + 3.0*d[i-1] + 4.0*e[i-1] + 5.0*f[i-1]
-                c[i] = c[i-1] + 3.0*d[i-1] + 6.0*e[i-1] + 10.0*f[i-1]
-                d[i] = d[i-1] + 4.0*e[i-1] + 10.0*f[i-1]
-                if i < n-1:
-                    f[i] = coeff[i+1] - coeff[i] - b[i] - c[i] - d[i] - e[i]
+            # do i=n-3,n
+            for i in range(n-3, n+1):
+                # Fortran to Python: i-1
+                b[i-1] = b[i-2] + 2.0*c[i-2] + 3.0*d[i-2] + 4.0*e[i-2] + 5.0*f[i-2]
+                c[i-1] = c[i-2] + 3.0*d[i-2] + 6.0*e[i-2] + 10.0*f[i-2]
+                d[i-1] = d[i-2] + 4.0*e[i-2] + 10.0*f[i-2]
+                # if(i.ne.n) f(i)= a(i+1)-a(i)-b(i)-c(i)-d(i)-e(i)
+                if i != n:
+                    f[i-1] = coeff[i] - coeff[i-1] - b[i-1] - c[i-1] - d[i-1] - e[i-1]
             f[n-1] = f[n-2]
             
             # FORTRAN: Scaling (lines 131-140)
