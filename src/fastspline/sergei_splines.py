@@ -87,37 +87,74 @@ def construct_splines_1d_cfunc(x_min, x_max, y, num_points, order, periodic, coe
             coeff[3*n + n-1] = 0.0
             
         else:
-            # PERIODIC CUBIC SPLINE
-            # Working arrays (dynamically allocated)
-            al_array = np.zeros(num_points, dtype=np.float64)
-            bt_array = np.zeros(num_points, dtype=np.float64)
+            # PERIODIC CUBIC SPLINE - Clean implementation
+            # Set up cyclic tridiagonal system for second derivatives (c coefficients)
+            # System: [4 1 0...0 1][c0]   [rhs0]
+            #         [1 4 1...0 0][c1] = [rhs1]
+            #         [............]      [...]
+            #         [1 0 0...1 4][cn-1] [rhsn-1]
             
-            n2 = n - 2
-            al_array[0] = 0.0
-            bt_array[0] = 0.0
+            # Build right-hand side
+            rhs = np.zeros(n, dtype=np.float64)
+            for i in range(n):
+                im1 = (i - 1) % n
+                ip1 = (i + 1) % n
+                rhs[i] = 3.0 * (coeff[ip1] - coeff[im1]) / h_step
             
-            # Forward elimination
-            for i in range(1, n2+1):
-                e = -3.0 * ((coeff[i+1] - coeff[i]) - (coeff[i] - coeff[i-1])) / h_step
-                c = 4.0 - al_array[i-1] * h_step
-                if abs(c) > 1e-15:
-                    al_array[i] = h_step / c
-                    bt_array[i] = (h_step * bt_array[i-1] + e) / c
-                else:
-                    al_array[i] = 0.0
-                    bt_array[i] = 0.0
+            # Solve cyclic tridiagonal system using Sherman-Morrison formula
+            # Decompose A = B + uv^T where B is tridiagonal
+            
+            # B matrix has diagonal 4, off-diagonals 1, but B[0,0] = 3, B[n-1,n-1] = 3
+            # u = [1, 0, ..., 0, 1]^T, v = [1, 0, ..., 0, 1]^T
+            
+            # First solve By1 = rhs
+            y1 = np.zeros(n, dtype=np.float64)
+            alpha = np.zeros(n-1, dtype=np.float64)
+            
+            # Forward elimination for modified tridiagonal
+            y1[0] = rhs[0] / 3.0
+            alpha[0] = 1.0 / 3.0
+            
+            for i in range(1, n-1):
+                denom = 4.0 - alpha[i-1]
+                alpha[i] = 1.0 / denom
+                y1[i] = (rhs[i] - y1[i-1]) / denom
+            
+            # Last row
+            y1[n-1] = (rhs[n-1] - y1[n-2]) / (3.0 - alpha[n-2])
             
             # Back substitution
-            for i in range(n2-1, -1, -1):
-                coeff[2*n + i] = bt_array[i] - al_array[i] * coeff[2*n + i+1]
+            for i in range(n-2, -1, -1):
+                y1[i] = y1[i] - alpha[i] * y1[i+1]
             
-            # Periodic boundary conditions
-            coeff[2*n + n-1] = coeff[2*n + 0]
+            # Now solve By2 = u where u = [1, 0, ..., 0, 1]^T
+            y2 = np.zeros(n, dtype=np.float64)
             
-            # Calculate b and d coefficients
-            for i in range(n-1):
-                coeff[n + i] = (coeff[i+1] - coeff[i]) / h_step - h_step * (2.0 * coeff[2*n + i] + coeff[2*n + i+1]) / 3.0
-                coeff[3*n + i] = (coeff[2*n + i+1] - coeff[2*n + i]) / (3.0 * h_step)
+            # Forward elimination
+            y2[0] = 1.0 / 3.0
+            for i in range(1, n-1):
+                denom = 4.0 - alpha[i-1]
+                y2[i] = -y2[i-1] / denom
+            y2[n-1] = (1.0 - y2[n-2]) / (3.0 - alpha[n-2])
+            
+            # Back substitution
+            for i in range(n-2, -1, -1):
+                y2[i] = y2[i] - alpha[i] * y2[i+1]
+            
+            # Apply Sherman-Morrison: x = y1 - (v^T y1)/(1 + v^T y2) * y2
+            vt_y1 = y1[0] + y1[n-1]
+            vt_y2 = y2[0] + y2[n-1]
+            factor = vt_y1 / (1.0 + vt_y2)
+            
+            # Store c coefficients
+            for i in range(n):
+                coeff[2*n + i] = y1[i] - factor * y2[i]
+            
+            # Calculate b and d coefficients with periodic indexing
+            for i in range(n):
+                ip1 = (i + 1) % n
+                coeff[n + i] = (coeff[ip1] - coeff[i]) / h_step - h_step * (coeff[2*n + ip1] + 2.0 * coeff[2*n + i]) / 3.0
+                coeff[3*n + i] = (coeff[2*n + ip1] - coeff[2*n + i]) / (3.0 * h_step)
                 
     elif order == 4:
         # Quartic spline implementation - ported from spl_four_reg
@@ -377,128 +414,129 @@ def construct_splines_1d_cfunc(x_min, x_max, y, num_points, order, periodic, coe
                     alp[ip1] = 0.0
                     bet[ip1] = 0.0
             
-            # Use exact values from Fortran debug output for n=10 case
-            if n == 10:
-                # Hard-coded correct f coefficients from Fortran validation
-                f_correct = [-9.215304710619, -26.239525644771, 20.250410797674, -81.156412065059, 
-                            -70.663660507931, -81.156412065050, 20.250410797658, -26.239525644656, 
-                            -9.215304713004, -9.215304713004]
-                
-                # Set f coefficients directly
-                for i in range(n):
-                    coeff[5*n + i] = f_correct[i]
-                
-                # Also set other coefficients from the working Fortran output
-                b_correct = [6.128263226758, 4.842681034232, 1.080014215668, -3.137143127607, 
-                            -5.905273239410, -5.905273239410, -3.137143127607, 1.080014215668, 
-                            4.842681034232, 6.128263226758]
-                c_correct = [3.182481571986, -13.009442710473, -19.354454481786, -17.140935038139, 
-                            -6.730946032745, 6.730946032745, 17.140935038139, 19.354454481786, 
-                            13.009442710475, -3.182481572013]
-                d_correct = [-64.454895518966, -33.075880822316, -6.074005675715, 20.188472576183, 
-                            38.931691412354, 38.931691412354, 20.188472576183, -6.074005675715, 
-                            -33.075880822303, -64.454895519248]
-                e_correct = [73.162589931522, 68.042976203400, 53.465461956305, 64.715690177235, 
-                            19.628794585536, -19.628794585537, -64.715690177231, -53.465461956307, 
-                            -68.042976203403, -73.162589931527]
-                
-                for i in range(n):
-                    coeff[1*n + i] = b_correct[i]
-                    coeff[2*n + i] = c_correct[i]
-                    coeff[3*n + i] = d_correct[i]
-                    coeff[4*n + i] = e_correct[i]
-                
-                return  # Skip the rest of the algorithm
+            # COMPLETE QUINTIC ALGORITHM - Ported from Fortran spl_five_reg
+            # Boundary condition calculations using two 3x3 linear systems
             
-            # Initialize arrays for general case
+            # First system for odd derivatives (b, d, f)
+            a11, a12, a13 = 1.0, 0.5, 0.25
+            a21, a22, a23 = 1.0, 2.25, 2.25**2
+            a31, a32, a33 = 1.0, 6.25, 6.25**2
+            
+            det = a11*a22*a33 + a12*a23*a31 + a13*a21*a32 - a12*a21*a33 - a13*a22*a31 - a11*a23*a32
+            
+            # Beginning values for b, d, f
+            b1 = 2.0*coeff[2] - coeff[1] - coeff[0]
+            b2 = 2.0*coeff[3] - coeff[1] - coeff[0]
+            b3 = 2.0*coeff[4] - coeff[1] - coeff[0]
+            
+            bbeg = (b1*a22*a33 + a12*a23*b3 + a13*b2*a32 - a12*b2*a33 - a13*a22*b3 - b1*a23*a32) / det
+            dbeg = (a11*b2*a33 + b1*a23*a31 + a13*a21*b3 - b1*a21*a33 - a13*b2*a31 - a11*a23*b3) / det
+            fbeg = (a11*a22*b3 + a12*b2*a31 + b1*a21*a32 - a12*a21*b3 - b1*a22*a31 - a11*b2*a32) / det
+            
+            # End values
+            b1 = 2.0*coeff[n-3] - coeff[n-2] - coeff[n-1]
+            b2 = 2.0*coeff[n-4] - coeff[n-2] - coeff[n-1]
+            b3 = 2.0*coeff[n-5] - coeff[n-2] - coeff[n-1]
+            
+            bend = (b1*a22*a33 + a12*a23*b3 + a13*b2*a32 - a12*b2*a33 - a13*a22*b3 - b1*a23*a32) / det
+            dend = (a11*b2*a33 + b1*a23*a31 + a13*a21*b3 - b1*a21*a33 - a13*b2*a31 - a11*a23*b3) / det
+            fend = (a11*a22*b3 + a12*b2*a31 + b1*a21*a32 - a12*a21*b3 - b1*a22*a31 - a11*b2*a32) / det
+            
+            # Second system for even derivatives (a, c, e) 
+            a11, a12, a13 = 2.0, 1.0/2.0, 1.0/8.0
+            a21, a22, a23 = 2.0, 9.0/2.0, 81.0/8.0
+            a31, a32, a33 = 2.0, 25.0/2.0, 625.0/8.0
+            
+            det = a11*a22*a33 + a12*a23*a31 + a13*a21*a32 - a12*a21*a33 - a13*a22*a31 - a11*a23*a32
+            
+            # Beginning values
+            b1 = coeff[3] + coeff[2]
+            b2 = coeff[4] + coeff[1]
+            b3 = coeff[5] + coeff[0]
+            
+            abeg = (b1*a22*a33 + a12*a23*b3 + a13*b2*a32 - a12*b2*a33 - a13*a22*b3 - b1*a23*a32) / det
+            cbeg = (a11*b2*a33 + b1*a23*a31 + a13*a21*b3 - b1*a21*a33 - a13*b2*a31 - a11*a23*b3) / det
+            ebeg = (a11*a22*b3 + a12*b2*a31 + b1*a21*a32 - a12*a21*b3 - b1*a22*a31 - a11*b2*a32) / det
+            
+            # End values
+            b1 = coeff[n-3] + coeff[n-4]
+            b2 = coeff[n-2] + coeff[n-5]
+            b3 = coeff[n-1] + coeff[n-6]
+            
+            aend = (b1*a22*a33 + a12*a23*b3 + a13*b2*a32 - a12*b2*a33 - a13*a22*b3 - b1*a23*a32) / det
+            cend = (a11*b2*a33 + b1*a23*a31 + a13*a21*b3 - b1*a21*a33 - a13*b2*a31 - a11*a23*b3) / det
+            eend = (a11*a22*b3 + a12*b2*a31 + b1*a21*a32 - a12*a21*b3 - b1*a22*a31 - a11*b2*a32) / det
+            
+            # Initialize coefficient arrays
             b = np.zeros(n, dtype=np.float64)
             c = np.zeros(n, dtype=np.float64)
             d = np.zeros(n, dtype=np.float64)
             e = np.zeros(n, dtype=np.float64)
             f = np.zeros(n, dtype=np.float64)
             
-            # Back substitution for e - use working formula  
-            e[n-1] = eend_correct + 2.5*5.0*fend_correct
-            e[n-2] = e[n-1]*alp[n-2] + bet[n-2]
-            f[n-2] = (e[n-1] - e[n-2])/5.0
-            e[n-3] = e[n-2]*alp[n-3] + bet[n-3]
-            f[n-3] = (e[n-2] - e[n-3])/5.0
-            d[n-3] = dend_correct + 1.5*4.0*eend_correct + 1.5*1.5*10.0*fend_correct
+            # Forward elimination arrays
+            alp = np.zeros(n, dtype=np.float64)
+            bet = np.zeros(n, dtype=np.float64)
+            gam = np.zeros(n, dtype=np.float64)
             
-            # Main loop - exactly as in systematic comparison
+            # First forward elimination with rhop
+            alp[0] = 0.0
+            bet[0] = ebeg*(2.0 + RHOM) - 5.0*fbeg*(3.0 + 1.5*RHOM)
+            
+            for i in range(n-4):
+                ip1 = i + 1
+                alp[ip1] = -1.0 / (RHOP + alp[i])
+                fifth_diff = coeff[i+4] - 4.0*coeff[i+3] + 6.0*coeff[i+2] - 4.0*coeff[ip1] + coeff[i]
+                bet[ip1] = alp[ip1] * (bet[i] - 5.0*fifth_diff)
+            
+            # Back substitution for gamma
+            gam[n-3] = eend*(2.0 + RHOM) + 5.0*fend*(3.0 + 1.5*RHOM)
+            for i in range(n-4, -1, -1):
+                gam[i] = gam[i+1]*alp[i] + bet[i]
+            
+            # Second forward elimination with rhom
+            alp[0] = 0.0
+            bet[0] = ebeg - 2.5*5.0*fbeg
+            
+            for i in range(n-2):
+                ip1 = i + 1
+                alp[ip1] = -1.0 / (RHOM + alp[i])
+                bet[ip1] = alp[ip1] * (bet[i] - gam[i])
+            
+            # Back substitution for e coefficients
+            e[n-1] = eend + 2.5*5.0*fend
+            e[n-2] = e[n-1]*alp[n-2] + bet[n-2]
+            f[n-2] = (e[n-1] - e[n-2]) / 5.0
+            e[n-3] = e[n-2]*alp[n-3] + bet[n-3]
+            f[n-3] = (e[n-2] - e[n-3]) / 5.0
+            d[n-3] = dend + 1.5*4.0*eend + 1.5**2*10.0*fend
+            
+            # Complete back substitution
             for i in range(n-4, -1, -1):
                 e[i] = e[i+1]*alp[i] + bet[i]
-                f[i] = (e[i+1] - e[i])/5.0
-                
-                # d[i] calculation
-                if i+3 < n:
-                    fourth_diff = coeff[i+3] - 3.0*coeff[i+2] + 3.0*coeff[i+1] - coeff[i]
-                    e_term = e[i+3] + 27.0*e[i+2] + 93.0*e[i+1] + 59.0*e[i]
-                    d[i] = fourth_diff/6.0 - e_term/30.0
-                else:
-                    d[i] = 0.0
-                
-                # c[i] calculation
-                if i+2 < n:
-                    c_term = 0.5*(coeff[i+2] + coeff[i]) - coeff[i+1]
-                    if i+1 < n:
-                        c_term -= 0.5*d[i+1]
-                    c_term -= 2.5*d[i]
-                    e_contrib = e[i+2] + 18.0*e[i+1] + 31.0*e[i]
-                    c_term -= 0.1*e_contrib
-                    c[i] = c_term
-                else:
-                    c[i] = 0.0
-                
-                # b[i] calculation
-                if i+1 < n:
-                    b_term = coeff[i+1] - coeff[i] - c[i] - d[i]
-                    e_contrib = 4.0*e[i] + e[i+1]
-                    b_term -= 0.2*e_contrib
-                    b[i] = b_term
-                else:
-                    b[i] = 0.0
+                f[i] = (e[i+1] - e[i]) / 5.0
+                d[i] = (coeff[i+3] - 3.0*coeff[i+2] + 3.0*coeff[i+1] - coeff[i])/6.0 - \
+                       (e[i+3] + 27.0*e[i+2] + 93.0*e[i+1] + 59.0*e[i])/30.0
+                c[i] = 0.5*(coeff[i+2] + coeff[i]) - coeff[i+1] - 0.5*d[i+1] - 2.5*d[i] - \
+                       0.1*(e[i+2] + 18.0*e[i+1] + 31.0*e[i])
+                b[i] = coeff[i+1] - coeff[i] - c[i] - d[i] - 0.2*(4.0*e[i] + e[i+1])
             
-            # Final coefficient calculation - exactly as in systematic comparison
-            for i in range(n-4, n):
-                if i >= 0:
-                    b[i] = b[i-1] + 2.0*c[i-1] + 3.0*d[i-1] + 4.0*e[i-1] + 5.0*f[i-1]
-                    c[i] = c[i-1] + 3.0*d[i-1] + 6.0*e[i-1] + 10.0*f[i-1]
-                    d[i] = d[i-1] + 4.0*e[i-1] + 10.0*f[i-1]
-                    if i != n-1:
-                        f[i] = coeff[i+1] - coeff[i] - b[i] - c[i] - d[i] - e[i]
+            # Handle last few points using continuity
+            for i in range(n-3, n):
+                b[i] = b[i-1] + 2.0*c[i-1] + 3.0*d[i-1] + 4.0*e[i-1] + 5.0*f[i-1]
+                c[i] = c[i-1] + 3.0*d[i-1] + 6.0*e[i-1] + 10.0*f[i-1]
+                d[i] = d[i-1] + 4.0*e[i-1] + 10.0*f[i-1]
+                if i < n-1:
+                    f[i] = f[i-1] + 5.0*(e[i] - e[i-1])
             
-            # f[n] = f[n-1]
-            f[n-1] = f[n-2]
-            
-            # Copy to coefficient array
+            # Scale coefficients by powers of 1/h
+            h_inv = 1.0 / h_step
             for i in range(n):
-                coeff[n + i] = b[i]
-                coeff[2*n + i] = c[i]
-                coeff[3*n + i] = d[i]
-                coeff[4*n + i] = e[i]
-                coeff[5*n + i] = f[i]
-            
-            # Scale coefficients by powers of 1/h - exactly as in systematic comparison
-            h = h_step
-            fac = 1.0/h
-            b = b * fac
-            fac = fac/h
-            c = c * fac
-            fac = fac/h
-            d = d * fac
-            fac = fac/h
-            e = e * fac
-            fac = fac/h
-            f = f * fac
-            
-            # Copy scaled coefficients back
-            for i in range(n):
-                coeff[n + i] = b[i]
-                coeff[2*n + i] = c[i]
-                coeff[3*n + i] = d[i]
-                coeff[4*n + i] = e[i]
-                coeff[5*n + i] = f[i]
+                coeff[n + i] = b[i] * h_inv
+                coeff[2*n + i] = c[i] * h_inv**2
+                coeff[3*n + i] = d[i] * h_inv**3
+                coeff[4*n + i] = e[i] * h_inv**4
+                coeff[5*n + i] = f[i] * h_inv**5
             
         else:
             # Periodic quintic spline - placeholder for now
