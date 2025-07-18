@@ -22,7 +22,7 @@ RHOM = 2.753049234040402   # 13.0 - sqrt(105.0)
     types.int32,                        # order
     types.int32,                        # periodic (0 or 1)
     types.CPointer(types.float64),      # output coeff array ((order+1) * num_points)
-), nopython=True)
+), nopython=True, nogil=True, cache=True, fastmath=True)
 def construct_splines_1d_cfunc(x_min, x_max, y, num_points, order, periodic, coeff):
     """Construct 1D spline - complete implementation with inlined algorithms"""
     
@@ -517,7 +517,7 @@ def construct_splines_1d_cfunc(x_min, x_max, y, num_points, order, periodic, coe
     types.CPointer(types.float64),      # coeff array
     types.float64,                      # x
     types.CPointer(types.float64)       # output y
-), nopython=True)
+), nopython=True, nogil=True, cache=True, fastmath=True)
 def evaluate_splines_1d_cfunc(order, num_points, periodic, x_min, h_step, coeff, x, y_out):
     """Evaluate 1D spline at point x"""
     
@@ -591,7 +591,7 @@ def evaluate_splines_1d_cfunc(order, num_points, periodic, x_min, h_step, coeff,
     types.CPointer(types.float64),      # output coeff array (flattened)
     types.CPointer(types.float64),      # workspace array for temp_y (size >= max(n1,n2))
     types.CPointer(types.float64),      # workspace array for temp_coeff (size >= 6*max(n1,n2))
-), nopython=True)
+), nopython=True, nogil=True, cache=True, fastmath=True)
 def construct_splines_2d_cfunc(x_min, x_max, y, num_points, order, periodic, coeff, workspace_y, workspace_coeff):
     """Construct 2D spline using tensor product approach"""
     
@@ -659,7 +659,7 @@ def construct_splines_2d_cfunc(x_min, x_max, y, num_points, order, periodic, coe
     types.CPointer(types.float64),      # coeff array (flattened)
     types.CPointer(types.float64),      # x array (2)
     types.CPointer(types.float64)       # output y
-), nopython=True)
+), nopython=True, nogil=True, cache=True, fastmath=True)
 def evaluate_splines_2d_cfunc(order, num_points, periodic, x_min, h_step, coeff, x, y_out):
     """Evaluate 2D spline at point (x[0], x[1])"""
     
@@ -752,7 +752,7 @@ def evaluate_splines_2d_cfunc(order, num_points, periodic, x_min, h_step, coeff,
     types.float64,                      # x
     types.CPointer(types.float64),      # output y
     types.CPointer(types.float64),      # output dy
-), nopython=True)
+), nopython=True, nogil=True, cache=True, fastmath=True)
 def evaluate_splines_1d_der_cfunc(order, num_points, periodic, x_min, h_step, coeff, x, y_out, dy_out):
     """Evaluate 1D spline and its derivative at point x"""
     
@@ -813,7 +813,7 @@ def evaluate_splines_1d_der_cfunc(order, num_points, periodic, x_min, h_step, co
     types.CPointer(types.float64),      # output y
     types.CPointer(types.float64),      # output dy
     types.CPointer(types.float64),      # output d2y
-), nopython=True)
+), nopython=True, nogil=True, cache=True, fastmath=True)
 def evaluate_splines_1d_der2_cfunc(order, num_points, periodic, x_min, h_step, coeff, x, y_out, dy_out, d2y_out):
     """Evaluate 1D spline and its first and second derivatives at point x"""
     
@@ -882,7 +882,7 @@ def evaluate_splines_1d_der2_cfunc(order, num_points, periodic, x_min, h_step, c
     types.CPointer(types.float64),      # output y
     types.CPointer(types.float64),      # output dy/dx1
     types.CPointer(types.float64),      # output dy/dx2
-), nopython=True)
+), nopython=True, nogil=True, cache=True, fastmath=True)
 def evaluate_splines_2d_der_cfunc(order, num_points, periodic, x_min, h_step, coeff, x, y_out, dydx1_out, dydx2_out):
     """Evaluate 2D spline and its first derivatives at point (x[0], x[1])"""
     
@@ -1005,7 +1005,7 @@ def evaluate_splines_2d_der_cfunc(order, num_points, periodic, x_min, h_step, co
     types.CPointer(types.float64),      # workspace array for 1D data
     types.CPointer(types.float64),      # workspace array for 1D coeffs
     types.CPointer(types.float64),      # workspace array for 2D construction
-), nopython=True)
+), nopython=True, nogil=True, cache=True, fastmath=True)
 def construct_splines_3d_cfunc(x_min, x_max, y, num_points, order, periodic, coeff, work_1d, work_1d_coeff, work_2d_coeff):
     """Construct 3D spline using tensor product approach"""
     
@@ -1086,7 +1086,7 @@ def construct_splines_3d_cfunc(x_min, x_max, y, num_points, order, periodic, coe
     types.CPointer(types.float64),      # coeff array (flattened)
     types.CPointer(types.float64),      # x array (3)
     types.CPointer(types.float64)       # output y
-), nopython=True)
+), nopython=True, nogil=True, cache=True, fastmath=True)
 def evaluate_splines_3d_cfunc(order, num_points, periodic, x_min, h_step, coeff, x, y_out):
     """Evaluate 3D spline at point (x[0], x[1], x[2])"""
     
@@ -1170,7 +1170,7 @@ def evaluate_splines_3d_cfunc(order, num_points, periodic, x_min, h_step, coeff,
     types.CPointer(types.float64),      # output dy/dx1
     types.CPointer(types.float64),      # output dy/dx2
     types.CPointer(types.float64),      # output dy/dx3
-), nopython=True)
+), nopython=True, nogil=True, cache=True, fastmath=True)
 def evaluate_splines_3d_der_cfunc(order, num_points, periodic, x_min, h_step, coeff, x, y_out, dydx1_out, dydx2_out, dydx3_out):
     """Evaluate 3D spline and its first derivatives at point (x[0], x[1], x[2])"""
     
