@@ -67,12 +67,14 @@ def construct_splines_1d_cfunc(x_min, x_max, y, num_points, order, periodic, coe
                     bt_array[i+1] = 0.0
             
             # Back substitution for c coefficients
+            # FORTRAN: ci(n) = (am2+ak2*bt(k))/(1.d0-al(k)*ak2)
             denom = 1.0 - al_array[k-1] * ak2
             if abs(denom) > 1e-15:
                 coeff[2*n + n-1] = (am2 + ak2 * bt_array[k-1]) / denom
             else:
                 coeff[2*n + n-1] = 0.0
                 
+            # FORTRAN: DO i = 1,k: i5 = n-i; ci(i5) = al(i5)*ci(i5+1)+bt(i5)
             for i in range(1, k+1):
                 i5 = n - i
                 coeff[2*n + i5-1] = al_array[i5-1] * coeff[2*n + i5] + bt_array[i5-1]
