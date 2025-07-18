@@ -336,5 +336,5 @@ def create_3d_visualization():
 
 if __name__ == "__main__":
     validate_3d_splines()
-    create_3d_visualization()
-    plt.show()
+    # create_3d_visualization()  # Skip for now due to quintic errors
+    # plt.show()

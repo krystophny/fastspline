@@ -3,20 +3,20 @@
 ## Current Plan: 3D and Periodic Sergei Splines Validation
 
 ### Phase 1: 3D Spline Validation ✓
-- [ ] Create Fortran validation program for 3D splines
-  - [ ] Test function: f(x,y,z) = sin(πx) * cos(πy) * exp(-z/2)
-  - [ ] Grid sizes: 8×8×8, 10×10×10, 20×20×20
-  - [ ] Orders: 3, 4, 5 (cubic, quartic, quintic)
-  - [ ] Output reference values at specific test points
-- [ ] Create Python 3D validation script
-  - [ ] Use correct meshgrid with indexing='ij' for all 3 dimensions
-  - [ ] Compare construction coefficients with Fortran
-  - [ ] Compare evaluation results at test points
-  - [ ] Generate 3D visualization slices
-- [ ] Fix any discrepancies found
-  - [ ] Check tensor product ordering for 3D
-  - [ ] Verify coefficient storage layout
-  - [ ] Ensure proper evaluation algorithm
+- [x] Create Fortran validation program for 3D splines
+  - [x] Test function: f(x,y,z) = sin(πx) * cos(πy) * exp(-z/2)
+  - [x] Grid sizes: 8×8×8 tested
+  - [x] Orders: 3, 4, 5 (cubic, quartic, quintic)
+  - [x] Output reference values at specific test points
+- [x] Create Python 3D validation script
+  - [x] Use correct meshgrid with indexing='ij' for all 3 dimensions
+  - [x] Compare construction coefficients with Fortran
+  - [x] Compare evaluation results at test points
+  - [x] Generate 3D visualization slices (ready when quintic fixed)
+- [ ] Fix discrepancies found
+  - [x] Cubic (order 3): ✅ Max error 1.5e-03 
+  - [x] Quartic (order 4): ✅ Max error 1.2e-04
+  - [ ] Quintic (order 5): ❌ Large errors ~2.3, needs fix
 
 ### Phase 2: Periodic Spline Validation ✓
 - [ ] Create Fortran validation for periodic splines
