@@ -87,74 +87,95 @@ def construct_splines_1d_cfunc(x_min, x_max, y, num_points, order, periodic, coe
             coeff[3*n + n-1] = 0.0
             
         else:
-            # PERIODIC CUBIC SPLINE - Clean implementation
-            # Set up cyclic tridiagonal system for second derivatives (c coefficients)
-            # System: [4 1 0...0 1][c0]   [rhs0]
-            #         [1 4 1...0 0][c1] = [rhs1]
-            #         [............]      [...]
-            #         [1 0 0...1 4][cn-1] [rhsn-1]
+            # PERIODIC CUBIC SPLINE - Exact Fortran splper algorithm
+            # Working arrays
+            bmx = np.zeros(n, dtype=np.float64)
+            yl = np.zeros(n, dtype=np.float64)
+            amx1 = np.zeros(n, dtype=np.float64)
+            amx2 = np.zeros(n, dtype=np.float64)
+            amx3 = np.zeros(n, dtype=np.float64)
             
-            # Build right-hand side
-            rhs = np.zeros(n, dtype=np.float64)
-            for i in range(n):
-                im1 = (i - 1) % n
-                ip1 = (i + 1) % n
-                rhs[i] = 3.0 * (coeff[ip1] - coeff[im1]) / h_step
+            # Initialize bmx[0] (unused sentinel)
+            bmx[0] = 1e30
             
-            # Solve cyclic tridiagonal system using Sherman-Morrison formula
-            # Decompose A = B + uv^T where B is tridiagonal
+            # Set up indices - exactly as in Fortran
+            nmx = n - 1
+            n1 = nmx - 1
+            n2 = nmx - 2
+            psi = 3.0 / h_step / h_step
             
-            # B matrix has diagonal 4, off-diagonals 1, but B[0,0] = 3, B[n-1,n-1] = 3
-            # u = [1, 0, ..., 0, 1]^T, v = [1, 0, ..., 0, 1]^T
+            # Call spfper to set up matrix - inline implementation
+            # amx1[0] = 2.0, etc. - exactly as in Fortran spfper
+            amx1[0] = 2.0
+            amx2[0] = 0.5
+            amx3[0] = 0.5
+            amx1[1] = np.sqrt(15.0) / 2.0
+            amx2[1] = 1.0 / amx1[1]
+            amx3[1] = -0.25 / amx1[1]
+            beta = 3.75
             
-            # First solve By1 = rhs
-            y1 = np.zeros(n, dtype=np.float64)
-            alpha = np.zeros(n-1, dtype=np.float64)
+            for i in range(2, n1):
+                i1 = i - 1
+                beta = 4.0 - 1.0 / beta
+                amx1[i] = np.sqrt(beta)
+                amx2[i] = 1.0 / amx1[i]
+                amx3[i] = -amx3[i1] / amx1[i] / amx1[i1]
             
-            # Forward elimination for modified tridiagonal
-            y1[0] = rhs[0] / 3.0
-            alpha[0] = 1.0 / 3.0
+            amx3[n1-1] = amx3[n1-1] + 1.0 / amx1[n1-1]
+            amx2[n1-1] = amx3[n1-1]
             
-            for i in range(1, n-1):
-                denom = 4.0 - alpha[i-1]
-                alpha[i] = 1.0 / denom
-                y1[i] = (rhs[i] - y1[i-1]) / denom
+            ss = 0.0
+            for i in range(n1):
+                ss = ss + amx3[i] * amx3[i]
+            amx1[nmx-1] = np.sqrt(4.0 - ss)
             
-            # Last row
-            y1[n-1] = (rhs[n-1] - y1[n-2]) / (3.0 - alpha[n-2])
+            # Set up right-hand side - exactly as in Fortran
+            # bmx(nmx) = (y(nmx+1)-2*y(nmx)+y(nmx-1))*psi
+            # Note: y(nmx+1) wraps to y(1) in Fortran = y[0] in Python
+            bmx[nmx-1] = (coeff[0] - 2.0*coeff[nmx-1] + coeff[nmx-2]) * psi
             
-            # Back substitution
-            for i in range(n-2, -1, -1):
-                y1[i] = y1[i] - alpha[i] * y1[i+1]
+            # bmx(1) = (y(2)-y(1)-y(nmx+1)+y(nmx))*psi  
+            bmx[0] = (coeff[1] - coeff[0] - coeff[0] + coeff[nmx-1]) * psi
             
-            # Now solve By2 = u where u = [1, 0, ..., 0, 1]^T
-            y2 = np.zeros(n, dtype=np.float64)
+            # DO i = 3,nmx: bmx(i-1) = (y(i)-2*y(i-1)+y(i-2))*psi
+            for i in range(2, nmx):
+                bmx[i-1] = (coeff[i] - 2.0*coeff[i-1] + coeff[i-2]) * psi
             
-            # Forward elimination
-            y2[0] = 1.0 / 3.0
-            for i in range(1, n-1):
-                denom = 4.0 - alpha[i-1]
-                y2[i] = -y2[i-1] / denom
-            y2[n-1] = (1.0 - y2[n-2]) / (3.0 - alpha[n-2])
+            # Forward elimination - exactly as in Fortran
+            yl[0] = bmx[0] / amx1[0]
+            for i in range(1, n1):
+                i1 = i - 1
+                yl[i] = (bmx[i] - yl[i1]*amx2[i1]) / amx1[i]
             
-            # Back substitution
-            for i in range(n-2, -1, -1):
-                y2[i] = y2[i] - alpha[i] * y2[i+1]
+            # Sum calculation - exactly as in Fortran
+            ss = 0.0
+            for i in range(n1):
+                ss = ss + yl[i] * amx3[i]
+            yl[nmx-1] = (bmx[nmx-1] - ss) / amx1[nmx-1]
             
-            # Apply Sherman-Morrison: x = y1 - (v^T y1)/(1 + v^T y2) * y2
-            vt_y1 = y1[0] + y1[n-1]
-            vt_y2 = y2[0] + y2[n-1]
-            factor = vt_y1 / (1.0 + vt_y2)
+            # Back substitution - exactly as in Fortran
+            bmx[nmx-1] = yl[nmx-1] / amx1[nmx-1]
+            bmx[n1-1] = (yl[n1-1] - amx2[n1-1]*bmx[nmx-1]) / amx1[n1-1]
+            for i in range(n2-1, -1, -1):
+                bmx[i] = (yl[i] - amx3[i]*bmx[nmx-1] - amx2[i]*bmx[i+1]) / amx1[i]
             
-            # Store c coefficients
-            for i in range(n):
-                coeff[2*n + i] = y1[i] - factor * y2[i]
+            # Copy c coefficients - exactly as in Fortran
+            for i in range(nmx):
+                coeff[2*n + i] = bmx[i]
             
-            # Calculate b and d coefficients with periodic indexing
-            for i in range(n):
-                ip1 = (i + 1) % n
-                coeff[n + i] = (coeff[ip1] - coeff[i]) / h_step - h_step * (coeff[2*n + ip1] + 2.0 * coeff[2*n + i]) / 3.0
-                coeff[3*n + i] = (coeff[2*n + ip1] - coeff[2*n + i]) / (3.0 * h_step)
+            # Calculate b and d coefficients - exactly as in Fortran
+            for i in range(n1):
+                coeff[n + i] = (coeff[i+1] - coeff[i]) / h_step - h_step * (coeff[2*n + i+1] + 2.0*coeff[2*n + i]) / 3.0
+                coeff[3*n + i] = (coeff[2*n + i+1] - coeff[2*n + i]) / h_step / 3.0
+            
+            # Periodic boundary calculations - exactly as in Fortran
+            coeff[n + nmx-1] = (coeff[0] - coeff[nmx-1]) / h_step - h_step * (coeff[2*n + 0] + 2.0*coeff[2*n + nmx-1]) / 3.0
+            coeff[3*n + nmx-1] = (coeff[2*n + 0] - coeff[2*n + nmx-1]) / h_step / 3.0
+            
+            # Fix periodicity boundary - exactly as in Fortran
+            coeff[n + n-1] = coeff[n + 0]
+            coeff[2*n + n-1] = coeff[2*n + 0]
+            coeff[3*n + n-1] = coeff[3*n + 0]
                 
     elif order == 4:
         # Quartic spline implementation - ported from spl_four_reg
@@ -167,87 +188,77 @@ def construct_splines_1d_cfunc(x_min, x_max, y, num_points, order, periodic, coe
                 coeff[3*n + i] = 0.0
                 coeff[4*n + i] = 0.0
         else:
-            # Quartic regular spline - ported from spl_four_reg
+            # Quartic regular spline - EXACT port from Fortran spl_four_reg
             # Working arrays
             alp = np.zeros(n, dtype=np.float64)
             bet = np.zeros(n, dtype=np.float64)
             gam = np.zeros(n, dtype=np.float64)
             
-            # Boundary conditions for d and e at beginning (indices 0, 1, 2)
-            if n >= 5:
-                fpl31 = 0.5 * (coeff[1] + coeff[3]) - coeff[2]
-                fpl40 = 0.5 * (coeff[0] + coeff[4]) - coeff[2]
-                fmn31 = 0.5 * (coeff[3] - coeff[1])
-                fmn40 = 0.5 * (coeff[4] - coeff[0])
-                coeff[3*n + 2] = (fmn40 - 2.0 * fmn31) / 6.0  # d[3]
-                coeff[4*n + 2] = (fpl40 - 4.0 * fpl31) / 12.0  # e[3]
-                coeff[3*n + 1] = coeff[3*n + 2] - 4.0 * coeff[4*n + 2]  # d[2]
-                coeff[3*n + 0] = coeff[3*n + 2] - 8.0 * coeff[4*n + 2]  # d[1]
-            else:
-                # Not enough points for quartic
-                for i in range(n):
-                    coeff[3*n + i] = 0.0
-                    coeff[4*n + i] = 0.0
+            # Temporary arrays for coefficients (using same names as Fortran)
+            a = np.empty(n, dtype=np.float64)
+            for i in range(n):
+                a[i] = coeff[i]  # Input y values
+            b = np.zeros(n, dtype=np.float64)
+            c = np.zeros(n, dtype=np.float64)
+            d = np.zeros(n, dtype=np.float64)
+            e = np.zeros(n, dtype=np.float64)
             
-            # Forward elimination
+            # Beginning boundary conditions - EXACTLY as in Fortran
+            fpl31 = 0.5 * (a[1] + a[3]) - a[2]
+            fpl40 = 0.5 * (a[0] + a[4]) - a[2]
+            fmn31 = 0.5 * (a[3] - a[1])
+            fmn40 = 0.5 * (a[4] - a[0])
+            d[2] = (fmn40 - 2.0 * fmn31) / 6.0
+            e[2] = (fpl40 - 4.0 * fpl31) / 12.0
+            d[1] = d[2] - 4.0 * e[2]
+            d[0] = d[2] - 8.0 * e[2]
+            
+            # Forward elimination - EXACTLY as in Fortran
             alp[0] = 0.0
-            bet[0] = coeff[3*n + 0] + coeff[3*n + 1] if n >= 2 else 0.0
+            bet[0] = d[0] + d[1]
             
             for i in range(n-3):
                 ip1 = i + 1
-                if abs(10.0 + alp[i]) > 1e-15:
-                    alp[ip1] = -1.0 / (10.0 + alp[i])
-                    if i+3 < n:
-                        fourth_diff = coeff[i+3] - 3.0 * (coeff[i+2] - coeff[i+1]) - coeff[i]
-                        bet[ip1] = alp[ip1] * (bet[i] - 4.0 * fourth_diff)
-                    else:
-                        bet[ip1] = alp[ip1] * bet[i]
-                else:
-                    alp[ip1] = 0.0
-                    bet[ip1] = 0.0
+                alp[ip1] = -1.0 / (10.0 + alp[i])
+                fourth_diff = a[i+3] - 3.0 * (a[i+2] - a[ip1]) - a[i]
+                bet[ip1] = alp[ip1] * (bet[i] - 4.0 * fourth_diff)
             
-            # Boundary conditions for d and e at end
-            if n >= 5:
-                fpl31 = 0.5 * (coeff[n-4] + coeff[n-2]) - coeff[n-3]
-                fpl40 = 0.5 * (coeff[n-5] + coeff[n-1]) - coeff[n-3]
-                fmn31 = 0.5 * (coeff[n-2] - coeff[n-4])
-                fmn40 = 0.5 * (coeff[n-1] - coeff[n-5])
-                coeff[3*n + n-3] = (fmn40 - 2.0 * fmn31) / 6.0  # d[n-2]
-                coeff[4*n + n-3] = (fpl40 - 4.0 * fpl31) / 12.0  # e[n-2]
-                coeff[3*n + n-2] = coeff[3*n + n-3] + 4.0 * coeff[4*n + n-3]  # d[n-1]
-                coeff[3*n + n-1] = coeff[3*n + n-3] + 8.0 * coeff[4*n + n-3]  # d[n]
+            # End boundary conditions - EXACTLY as in Fortran
+            fpl31 = 0.5 * (a[n-4] + a[n-2]) - a[n-3]
+            fpl40 = 0.5 * (a[n-5] + a[n-1]) - a[n-3]
+            fmn31 = 0.5 * (a[n-2] - a[n-4])
+            fmn40 = 0.5 * (a[n-1] - a[n-5])
+            d[n-3] = (fmn40 - 2.0 * fmn31) / 6.0
+            e[n-3] = (fpl40 - 4.0 * fpl31) / 12.0
+            d[n-2] = d[n-3] + 4.0 * e[n-3]
+            d[n-1] = d[n-3] + 8.0 * e[n-3]
             
-            # Back substitution
-            if n >= 2:
-                gam[n-2] = coeff[3*n + n-1] + coeff[3*n + n-2] if n >= 2 else 0.0
+            # Back substitution - EXACTLY as in Fortran
+            gam[n-2] = d[n-1] + d[n-2]
             
+            # Fortran: do i=n-2,1,-1 which is n-2 down to 1 (1-based)
+            # Python: range(n-3, -1, -1) which is n-3 down to 0 (0-based)
             for i in range(n-3, -1, -1):
-                if i+1 < n:
-                    gam[i] = gam[i+1] * alp[i] + bet[i]
-                    coeff[3*n + i] = gam[i] - coeff[3*n + i+1]  # d[i]
-                    coeff[4*n + i] = (coeff[3*n + i+1] - coeff[3*n + i]) / 4.0  # e[i]
-                    
-                    # Calculate c[i]
-                    if i+2 < n:
-                        c_term = 0.5 * (coeff[i+2] + coeff[i]) - coeff[i+1]
-                        if i+2 < n:
-                            c_term -= 0.125 * (coeff[3*n + i+2] + 12.0 * coeff[3*n + i+1] + 11.0 * coeff[3*n + i])
-                        coeff[2*n + i] = c_term  # c[i]
-                    else:
-                        coeff[2*n + i] = 0.0
-                    
-                    # Calculate b[i]
-                    if i+1 < n:
-                        b_term = coeff[i+1] - coeff[i] - coeff[2*n + i]
-                        b_term -= (3.0 * coeff[3*n + i] + coeff[3*n + i+1]) / 4.0
-                        coeff[n + i] = b_term  # b[i]
-                    else:
-                        coeff[n + i] = 0.0
-                else:
-                    coeff[3*n + i] = 0.0
-                    coeff[4*n + i] = 0.0
-                    coeff[2*n + i] = 0.0
-                    coeff[n + i] = 0.0
+                gam[i] = gam[i+1] * alp[i] + bet[i]
+                d[i] = gam[i] - d[i+1]
+                e[i] = (d[i+1] - d[i]) / 4.0
+                c[i] = 0.5 * (a[i+2] + a[i]) - a[i+1] - 0.125 * (d[i+2] + 12.0*d[i+1] + 11.0*d[i])
+                b[i] = a[i+1] - a[i] - c[i] - (3.0*d[i] + d[i+1]) / 4.0
+            
+            # Final coefficients - EXACTLY as in Fortran
+            # Fortran: b(n-1)=b(n-2)+2.d0*c(n-2)+3.d0*d(n-2)+4.d0*e(n-2)
+            # Python:  b[n-2]=b[n-3]+2.0*c[n-3]+3.0*d[n-3]+4.0*e[n-3] (0-based)
+            b[n-2] = b[n-3] + 2.0*c[n-3] + 3.0*d[n-3] + 4.0*e[n-3]
+            c[n-2] = c[n-3] + 3.0*d[n-3] + 6.0*e[n-3]
+            
+            # No scaling for quartic - coefficients are already normalized
+            
+            # Copy back to coefficient array
+            for i in range(n):
+                coeff[n + i] = b[i]
+                coeff[2*n + i] = c[i]
+                coeff[3*n + i] = d[i]
+                coeff[4*n + i] = e[i]
             
             # Final coefficients for last points
             if n >= 2:
@@ -579,11 +590,16 @@ def evaluate_splines_1d_cfunc(order, num_points, periodic, x_min, h_step, coeff,
     x_norm = (xj - x_min) / h_step
     interval_index = int(x_norm)
     
-    # Clamp to valid range
-    if interval_index < 0:
-        interval_index = 0
-    elif interval_index >= num_points - 1:
-        interval_index = num_points - 2
+    # Handle boundary conditions
+    if periodic:
+        # For periodic splines, wrap around
+        interval_index = interval_index % num_points
+    else:
+        # For non-periodic splines, clamp to valid range
+        if interval_index < 0:
+            interval_index = 0
+        elif interval_index >= num_points - 1:
+            interval_index = num_points - 2
     
     # Local coordinate within interval
     x_local = (x_norm - interval_index) * h_step
