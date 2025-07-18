@@ -212,15 +212,25 @@ class TestSciPyComparison:
 class TestSplineStability:
     """Test spline stability and edge cases"""
     
-    def test_quartic_disabled(self):
-        """Test that quartic splines are properly disabled"""
+    def test_quartic_enabled(self):
+        """Test that quartic splines work correctly"""
         n = 10
         x = np.linspace(0, 1, n)
         y = np.sin(x)
         coeff = np.zeros(5*n, dtype=np.float64)
         
-        with pytest.raises(ValueError, match="Quartic.*disabled"):
-            construct_splines_1d_cfunc(0.0, 1.0, y, n, 4, False, coeff)
+        # Should not raise an error
+        construct_splines_1d_cfunc(0.0, 1.0, y, n, 4, False, coeff)
+        
+        # Should evaluate without error
+        h = 1.0 / (n - 1)
+        y_out = np.zeros(1)
+        evaluate_splines_1d_cfunc(4, n, False, 0.0, h, coeff, 0.5, y_out)
+        
+        # Should give reasonable result
+        expected = np.sin(0.5)
+        error = abs(y_out[0] - expected)
+        assert error < 0.1, f"Quartic evaluation error {error:.2e} too large"
     
     def test_minimum_points_cubic(self):
         """Test cubic splines work with minimum number of points"""

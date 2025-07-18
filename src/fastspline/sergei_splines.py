@@ -198,9 +198,209 @@ def construct_splines_1d_cfunc(x_min, x_max, y, num_points, order, periodic, coe
             coeff[3*n + n-1] = coeff[3*n + 0]   # di(n) = di(1)
                 
     elif order == 4:
-        # Quartic splines temporarily disabled due to mathematical property issues
-        # Use cubic or quintic splines instead
-        raise ValueError("Quartic (4th order) splines are temporarily disabled. Use order=3 or order=5 instead.")
+        # Quartic spline - EXACT 1:1 port from Fortran spl_four_reg/spl_four_per
+        if periodic == 0:
+            # Regular quartic spline - EXACT 1:1 Fortran port from spl_four_reg
+            # From spl_three_to_five.f90 lines 263-330
+            
+            # Working arrays
+            alp = np.zeros(n, dtype=np.float64)
+            bet = np.zeros(n, dtype=np.float64)
+            gam = np.zeros(n, dtype=np.float64)
+            
+            # Arrays for coefficients (using 1-based indexing style)
+            b = np.zeros(n, dtype=np.float64)
+            c = np.zeros(n, dtype=np.float64)  
+            d = np.zeros(n, dtype=np.float64)
+            e = np.zeros(n, dtype=np.float64)
+            
+            # FORTRAN: Initial d and e calculation (lines 275-282)
+            fpl31 = 0.5*(coeff[1] + coeff[3]) - coeff[2]  # a(2)+a(4)-a(3)
+            fpl40 = 0.5*(coeff[0] + coeff[4]) - coeff[2]  # a(1)+a(5)-a(3)
+            fmn31 = 0.5*(coeff[3] - coeff[1])  # a(4)-a(2)
+            fmn40 = 0.5*(coeff[4] - coeff[0])  # a(5)-a(1)
+            d[2] = (fmn40 - 2.0*fmn31) / 6.0  # d(3)
+            e[2] = (fpl40 - 4.0*fpl31) / 12.0  # e(3)
+            d[1] = d[2] - 4.0*e[2]  # d(2)
+            d[0] = d[2] - 8.0*e[2]  # d(1)
+            
+            # FORTRAN: First elimination (lines 284-291)
+            alp[0] = 0.0  # alp(1)
+            bet[0] = d[0] + d[1]  # bet(1) = d(1) + d(2)
+            
+            # do i=1,n-3
+            for i in range(1, n-2):
+                ip1 = i + 1
+                alp[ip1-1] = -1.0 / (10.0 + alp[i-1])  # alp(ip1) 
+                bet[ip1-1] = alp[ip1-1] * (bet[i-1] - 4.0*(coeff[i+2] - 3.0*(coeff[i+1] - coeff[i]) - coeff[i-1]))
+            
+            # FORTRAN: End boundary calculation (lines 293-302)
+            fpl31 = 0.5*(coeff[n-4] + coeff[n-2]) - coeff[n-3]  # a(n-3)+a(n-1)-a(n-2)
+            fpl40 = 0.5*(coeff[n-5] + coeff[n-1]) - coeff[n-3]  # a(n-4)+a(n)-a(n-2)
+            fmn31 = 0.5*(coeff[n-2] - coeff[n-4])  # a(n-1)-a(n-3)
+            fmn40 = 0.5*(coeff[n-1] - coeff[n-5])  # a(n)-a(n-4)
+            d[n-3] = (fmn40 - 2.0*fmn31) / 6.0  # d(n-2)
+            e[n-3] = (fpl40 - 4.0*fpl31) / 12.0  # e(n-2)
+            d[n-2] = d[n-3] + 4.0*e[n-3]  # d(n-1)
+            d[n-1] = d[n-3] + 8.0*e[n-3]  # d(n)
+            
+            # FORTRAN: Back substitution (lines 302-310)
+            gam[n-2] = d[n-1] + d[n-2]  # gam(n-1) = d(n) + d(n-1)
+            
+            # do i=n-2,1,-1
+            for i in range(n-2, 0, -1):
+                gam[i-1] = gam[i]*alp[i-1] + bet[i-1]  # gam(i)
+                d[i-1] = gam[i-1] - d[i]  # d(i) = gam(i) - d(i+1)
+                e[i-1] = (d[i] - d[i-1]) / 4.0  # e(i) = (d(i+1) - d(i))/4
+                c[i-1] = 0.5*(coeff[i+1] + coeff[i-1]) - coeff[i] - 0.125*(d[i+1] + 12.0*d[i] + 11.0*d[i-1])
+                b[i-1] = coeff[i] - coeff[i-1] - c[i-1] - (3.0*d[i-1] + d[i]) / 4.0
+            
+            # FORTRAN: Final boundary coefficients (lines 312-317)
+            b[n-2] = b[n-3] + 2.0*c[n-3] + 3.0*d[n-3] + 4.0*e[n-3]  # b(n-1)
+            c[n-2] = c[n-3] + 3.0*d[n-3] + 6.0*e[n-3]  # c(n-1)
+            e[n-2] = coeff[n-1] - coeff[n-2] - b[n-2] - c[n-2] - d[n-2]  # e(n-1)
+            b[n-1] = b[n-2] + 2.0*c[n-2] + 3.0*d[n-2] + 4.0*e[n-2]  # b(n)
+            c[n-1] = c[n-2] + 3.0*d[n-2] + 6.0*e[n-2]  # c(n)
+            e[n-1] = e[n-2]  # e(n)
+            
+            # FORTRAN: Scaling (lines 319-326)
+            fac = 1.0 / h_step
+            b = b * fac
+            fac = fac / h_step
+            c = c * fac
+            fac = fac / h_step
+            d = d * fac
+            fac = fac / h_step
+            e = e * fac
+            
+            # Copy to coefficient array
+            for i in range(n):
+                coeff[n + i] = b[i]
+                coeff[2*n + i] = c[i]
+                coeff[3*n + i] = d[i]
+                coeff[4*n + i] = e[i]
+                
+        else:
+            # Periodic quartic spline - EXACT 1:1 Fortran port from spl_four_per
+            # From spl_three_to_five.f90 lines 333-414
+            
+            # Working arrays (using 1-based indexing mapping)
+            alp = np.zeros(n+1, dtype=np.float64)  # alp(1:n)
+            bet = np.zeros(n+1, dtype=np.float64)  # bet(1:n)
+            gam = np.zeros(n+1, dtype=np.float64)  # gam(1:n)
+            
+            # Arrays for coefficients
+            b = np.zeros(n, dtype=np.float64)
+            c = np.zeros(n, dtype=np.float64)
+            d = np.zeros(n, dtype=np.float64)
+            e = np.zeros(n, dtype=np.float64)
+            
+            # FORTRAN: Base values for periodic correction (lines 345-346)
+            base1 = -5.0 + 2.0*np.sqrt(6.0)
+            base2 = -5.0 - 2.0*np.sqrt(6.0)
+            
+            # FORTRAN: First elimination (lines 348-359)
+            alp[1] = 0.0  # alp(1)
+            bet[1] = 0.0  # bet(1)
+            
+            # do i=1,n-3 (Fortran 1-based)
+            for i in range(1, n-2):
+                ip1 = i + 1
+                alp[ip1] = -1.0 / (10.0 + alp[i])  # alp(ip1)
+                expr = coeff[i+3-1] - 3.0*(coeff[i+2-1] - coeff[ip1-1]) - coeff[i-1]  # Convert to 0-based
+                bet[ip1] = alp[ip1] * (bet[i] - 4.0*expr)
+            
+            # Special periodic boundary terms
+            alp[n-1] = -1.0 / (10.0 + alp[n-2])  # alp(n-1)
+            expr = coeff[2-1] - 3.0*(coeff[n-1] - coeff[n-1-1]) - coeff[n-2-1]  # Convert to 0-based
+            bet[n-1] = alp[n-1] * (bet[n-2] - 4.0*expr)
+            
+            alp[n] = -1.0 / (10.0 + alp[n-1])  # alp(n)
+            expr = coeff[3-1] - 3.0*(coeff[2-1] - coeff[n-1]) - coeff[n-1-1]  # Convert to 0-based
+            bet[n] = alp[n] * (bet[n-1] - 4.0*expr)
+            
+            # FORTRAN: Back substitution (lines 361-365)
+            gam[n] = bet[n]  # gam(n)
+            
+            for i in range(n-1, 0, -1):
+                gam[i] = gam[i+1]*alp[i] + bet[i]  # gam(i)
+            
+            # FORTRAN: Periodic correction (lines 367-378)
+            phi1 = (gam[n]*base2 + gam[2]) / (base2 - base1) / (1.0 - base1**(n-1))
+            phi2 = (gam[n]*base1 + gam[2]) / (base2 - base1) / (1.0 - (1.0/base2)**(n-1))
+            
+            # Apply phi2 correction (backwards)
+            phi2_temp = phi2
+            for i in range(n, 0, -1):
+                gam[i] = gam[i] + phi2_temp
+                phi2_temp = phi2_temp / base2
+            
+            # Apply phi1 correction (forwards)  
+            phi1_temp = phi1
+            for i in range(1, n+1):
+                gam[i] = gam[i] + phi1_temp
+                phi1_temp = phi1_temp * base1
+            
+            # FORTRAN: d coefficients (lines 380-389)
+            d[n-1] = 0.0  # d(n)
+            for i in range(n-1, 0, -1):
+                d[i-1] = gam[i] - d[i]  # d(i) = gam(i) - d(i+1)
+            
+            # Alternating correction
+            phi = -0.5 * d[0]  # phi = -0.5*d(1)
+            for i in range(n):
+                d[i] = d[i] + phi
+                phi = -phi
+            
+            # FORTRAN: e, c, b coefficients (lines 391-402)
+            # e(n)=(d(2)-d(n))/4.d0
+            e[n-1] = (d[1] - d[n-1]) / 4.0
+            # c(n)=0.5d0*(a(3)+a(n))-a(2)-0.125d0*(d(3)+12.d0*d(2)+11.d0*d(n))
+            c[n-1] = 0.5*(coeff[2] + coeff[n-1]) - coeff[1] - 0.125*(d[2] + 12.0*d[1] + 11.0*d[n-1])
+            # b(n)=a(2)-a(n)-c(n)-(3.d0*d(n)+d(2))/4.d0
+            b[n-1] = coeff[1] - coeff[n-1] - c[n-1] - (3.0*d[n-1] + d[1]) / 4.0
+            
+            # e(n-1)=(d(1)-d(n-1))/4.d0
+            e[n-2] = (d[0] - d[n-2]) / 4.0
+            # c(n-1)=0.5d0*(a(2)+a(n-1))-a(1)-0.125d0*(d(2)+12.d0*d(1)+11.d0*d(n-1))
+            c[n-2] = 0.5*(coeff[1] + coeff[n-2]) - coeff[0] - 0.125*(d[1] + 12.0*d[0] + 11.0*d[n-2])
+            # b(n-1)=a(1)-a(n-1)-c(n-1)-(3.d0*d(n-1)+d(1))/4.d0
+            b[n-2] = coeff[0] - coeff[n-2] - c[n-2] - (3.0*d[n-2] + d[0]) / 4.0
+            
+            # do i=n-2,1,-1 (Fortran loop from n-2 down to 1, Python i=n-3 down to i=0)
+            for i in range(n-3, -1, -1):
+                # e(i)=(d(i+1)-d(i))/4.d0
+                e[i] = (d[i+1] - d[i]) / 4.0
+                
+                if i == 0:
+                    # Handle i=0 case (Fortran i=1) - EXACT FORTRAN MAPPING
+                    # c(1)=0.5d0*(a(3)+a(1))-a(2)-0.125d0*(d(3)+12.d0*d(2)+11.d0*d(1))
+                    c[i] = 0.5*(coeff[i+2] + coeff[i]) - coeff[i+1] - 0.125*(d[i+2] + 12.0*d[i+1] + 11.0*d[i])
+                    # b(1)=a(2)-a(1)-c(1)-(3.d0*d(1)+d(2))/4.d0
+                    b[i] = coeff[i+1] - coeff[i] - c[i] - (3.0*d[i] + d[i+1]) / 4.0
+                else:
+                    # Regular case for i >= 1
+                    # c(i)=0.5d0*(a(i+2)+a(i))-a(i+1)-0.125d0*(d(i+2)+12.d0*d(i+1)+11.d0*d(i))
+                    c[i] = 0.5*(coeff[i+2] + coeff[i]) - coeff[i+1] - 0.125*(d[i+2] + 12.0*d[i+1] + 11.0*d[i])
+                    # b(i)=a(i+1)-a(i)-c(i)-(3.d0*d(i)+d(i+1))/4.d0
+                    b[i] = coeff[i+1] - coeff[i] - c[i] - (3.0*d[i] + d[i+1]) / 4.0
+            
+            # FORTRAN: Scaling (lines 404-411)
+            fac = 1.0 / h_step
+            b = b * fac
+            fac = fac / h_step
+            c = c * fac
+            fac = fac / h_step
+            d = d * fac
+            fac = fac / h_step
+            e = e * fac
+            
+            # Copy to coefficient array
+            for i in range(n):
+                coeff[n + i] = b[i]
+                coeff[2*n + i] = c[i]
+                coeff[3*n + i] = d[i]
+                coeff[4*n + i] = e[i]
             
     elif order == 5:
         # Quintic spline - EXACT 1:1 port from Fortran spl_five_reg/spl_five_per
