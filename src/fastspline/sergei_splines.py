@@ -87,25 +87,30 @@ def construct_splines_1d_cfunc(x_min, x_max, y, num_points, order, periodic, coe
             coeff[3*n + n-1] = 0.0
             
         else:
-            # PERIODIC CUBIC SPLINE - Exact Fortran splper algorithm
-            # Working arrays
+            # Periodic cubic spline - EXACT 1:1 port from Fortran splper subroutine
+            # From spl_three_to_five.f90, lines 473-544
+            
+            # Allocate working arrays
             bmx = np.zeros(n, dtype=np.float64)
-            yl = np.zeros(n, dtype=np.float64)
+            yl = np.zeros(n, dtype=np.float64) 
             amx1 = np.zeros(n, dtype=np.float64)
             amx2 = np.zeros(n, dtype=np.float64)
             amx3 = np.zeros(n, dtype=np.float64)
             
-            # Initialize bmx[0] (unused sentinel)
+            # FORTRAN: bmx(1) = 1.d30
             bmx[0] = 1e30
             
-            # Set up indices - exactly as in Fortran
+            # FORTRAN variables
             nmx = n - 1
             n1 = nmx - 1
             n2 = nmx - 2
-            psi = 3.0 / h_step / h_step
+            psi = 3.0 / (h_step * h_step)
             
-            # Call spfper to set up matrix - inline implementation
-            # amx1[0] = 2.0, etc. - exactly as in Fortran spfper
+            # CALL spfper(n,amx1,amx2,amx3) - inline implementation
+            # From lines 547-584 in Fortran
+            nn = nmx  # n in spfper corresponds to nmx here
+            nn1 = nn - 1
+            
             amx1[0] = 2.0
             amx2[0] = 0.5
             amx3[0] = 0.5
@@ -114,68 +119,81 @@ def construct_splines_1d_cfunc(x_min, x_max, y, num_points, order, periodic, coe
             amx3[1] = -0.25 / amx1[1]
             beta = 3.75
             
-            for i in range(2, n1):
+            for i in range(2, nn1):
                 i1 = i - 1
                 beta = 4.0 - 1.0 / beta
                 amx1[i] = np.sqrt(beta)
                 amx2[i] = 1.0 / amx1[i]
                 amx3[i] = -amx3[i1] / amx1[i] / amx1[i1]
             
-            amx3[n1-1] = amx3[n1-1] + 1.0 / amx1[n1-1]
-            amx2[n1-1] = amx3[n1-1]
-            
+            amx3[nn1-1] = amx3[nn1-1] + 1.0 / amx1[nn1-1]
+            amx2[nn1-1] = amx3[nn1-1]
             ss = 0.0
-            for i in range(n1):
+            for i in range(nn1):
                 ss = ss + amx3[i] * amx3[i]
-            amx1[nmx-1] = np.sqrt(4.0 - ss)
+            amx1[nn-1] = np.sqrt(4.0 - ss)
             
-            # Set up right-hand side - exactly as in Fortran
-            # bmx(nmx) = (y(nmx+1)-2*y(nmx)+y(nmx-1))*psi
-            # Note: y(nmx+1) wraps to y(1) in Fortran = y[0] in Python
+            # FORTRAN: bmx(nmx) = (y(nmx+1)-2.d0*y(nmx)+y(nmx-1))*psi
+            # y(nmx+1) is periodic so it's y(1), which is coeff[0] in Python
             bmx[nmx-1] = (coeff[0] - 2.0*coeff[nmx-1] + coeff[nmx-2]) * psi
             
-            # bmx(1) = (y(2)-y(1)-y(nmx+1)+y(nmx))*psi  
+            # FORTRAN: bmx(1) = (y(2)-y(1)-y(nmx+1)+y(nmx))*psi
             bmx[0] = (coeff[1] - coeff[0] - coeff[0] + coeff[nmx-1]) * psi
             
-            # DO i = 3,nmx: bmx(i-1) = (y(i)-2*y(i-1)+y(i-2))*psi
+            # FORTRAN: DO i = 3,nmx: bmx(i-1) = (y(i)-2.d0*y(i-1)+y(i-2))*psi
             for i in range(2, nmx):
+                # Fortran i goes from 3 to nmx, so bmx(i-1) means bmx[i-2] in Python
                 bmx[i-1] = (coeff[i] - 2.0*coeff[i-1] + coeff[i-2]) * psi
             
-            # Forward elimination - exactly as in Fortran
+            # FORTRAN: yl(1) = bmx(1)/amx1(1)
             yl[0] = bmx[0] / amx1[0]
+            
+            # FORTRAN: DO i = 2,n1
             for i in range(1, n1):
                 i1 = i - 1
                 yl[i] = (bmx[i] - yl[i1]*amx2[i1]) / amx1[i]
             
-            # Sum calculation - exactly as in Fortran
+            # FORTRAN: ss = 0.d0; DO i = 1,n1: ss = ss+yl(i)*amx3(i)
             ss = 0.0
             for i in range(n1):
                 ss = ss + yl[i] * amx3[i]
+            
+            # FORTRAN: yl(nmx) = (bmx(nmx)-ss)/amx1(nmx)
             yl[nmx-1] = (bmx[nmx-1] - ss) / amx1[nmx-1]
             
-            # Back substitution - exactly as in Fortran
+            # FORTRAN: bmx(nmx) = yl(nmx)/amx1(nmx)
             bmx[nmx-1] = yl[nmx-1] / amx1[nmx-1]
+            
+            # FORTRAN: bmx(n1) = (yl(n1)-amx2(n1)*bmx(nmx))/amx1(n1)
             bmx[n1-1] = (yl[n1-1] - amx2[n1-1]*bmx[nmx-1]) / amx1[n1-1]
+            
+            # FORTRAN: DO i = n2,1,-1
             for i in range(n2-1, -1, -1):
                 bmx[i] = (yl[i] - amx3[i]*bmx[nmx-1] - amx2[i]*bmx[i+1]) / amx1[i]
             
-            # Copy c coefficients - exactly as in Fortran
+            # FORTRAN: DO i = 1,nmx: ci(i) = bmx(i)
             for i in range(nmx):
                 coeff[2*n + i] = bmx[i]
             
-            # Calculate b and d coefficients - exactly as in Fortran
+            # FORTRAN: DO i = 1,n1
             for i in range(n1):
+                # bi(i) = (y(i+1)-y(i))/h-h*(ci(i+1)+2.d0*ci(i))/3.d0
                 coeff[n + i] = (coeff[i+1] - coeff[i]) / h_step - h_step * (coeff[2*n + i+1] + 2.0*coeff[2*n + i]) / 3.0
+                # di(i) = (ci(i+1)-ci(i))/h/3.d0
                 coeff[3*n + i] = (coeff[2*n + i+1] - coeff[2*n + i]) / h_step / 3.0
             
-            # Periodic boundary calculations - exactly as in Fortran
+            # FORTRAN: bi(nmx) = (y(n)-y(n-1))/h-h*(ci(1)+2.d0*ci(nmx))/3.d0
+            # y(n) wraps to y(1) for periodic, so it's coeff[0]
             coeff[n + nmx-1] = (coeff[0] - coeff[nmx-1]) / h_step - h_step * (coeff[2*n + 0] + 2.0*coeff[2*n + nmx-1]) / 3.0
+            
+            # FORTRAN: di(nmx) = (ci(1)-ci(nmx))/h/3.d0
             coeff[3*n + nmx-1] = (coeff[2*n + 0] - coeff[2*n + nmx-1]) / h_step / 3.0
             
-            # Fix periodicity boundary - exactly as in Fortran
-            coeff[n + n-1] = coeff[n + 0]   # b coefficients periodic
-            coeff[2*n + n-1] = coeff[2*n + 0] # c coefficients periodic
-            coeff[3*n + n-1] = coeff[3*n + 0] # d coefficients periodic
+            # FORTRAN: Fix of problems at upper periodicity boundary
+            # bi(n) = bi(1), ci(n) = ci(1), di(n) = di(1)
+            coeff[n + n-1] = coeff[n + 0]       # bi(n) = bi(1)
+            coeff[2*n + n-1] = coeff[2*n + 0]   # ci(n) = ci(1)
+            coeff[3*n + n-1] = coeff[3*n + 0]   # di(n) = di(1)
                 
     elif order == 4:
         # Quartic splines temporarily disabled due to mathematical property issues
@@ -429,13 +447,17 @@ def construct_splines_1d_cfunc(x_min, x_max, y, num_points, order, periodic, coe
                        0.1*(e[i+2] + 18.0*e[i+1] + 31.0*e[i])
                 b[i] = coeff[i+1] - coeff[i] - c[i] - d[i] - 0.2*(4.0*e[i] + e[i+1])
             
-            # Handle last few points using continuity
+            # Handle last few points using continuity - EXACT Fortran algorithm
             for i in range(n-3, n):
                 b[i] = b[i-1] + 2.0*c[i-1] + 3.0*d[i-1] + 4.0*e[i-1] + 5.0*f[i-1]
                 c[i] = c[i-1] + 3.0*d[i-1] + 6.0*e[i-1] + 10.0*f[i-1]
                 d[i] = d[i-1] + 4.0*e[i-1] + 10.0*f[i-1]
                 if i < n-1:
-                    f[i] = f[i-1] + 5.0*(e[i] - e[i-1])
+                    # FORTRAN: if(i.ne.n) f(i)= a(i+1)-a(i)-b(i)-c(i)-d(i)-e(i)
+                    f[i] = coeff[i+1] - coeff[i] - b[i] - c[i] - d[i] - e[i]
+            
+            # FORTRAN: f(n)=f(n-1)
+            f[n-1] = f[n-2]
             
             # Scale coefficients by powers of 1/h
             h_inv = 1.0 / h_step
