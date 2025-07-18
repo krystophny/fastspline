@@ -377,13 +377,132 @@ def construct_splines_1d_cfunc(x_min, x_max, y, num_points, order, periodic, coe
                 coeff[5*n + i] = f[i]
             
         else:
-            # Periodic quintic spline - placeholder for now
+            # Periodic quintic spline - EXACT 1:1 Fortran port from spl_five_per
+            # From spl_three_to_five.f90 lines 147-260
+            
+            # Fortran constants
+            rhop = 13.0 + np.sqrt(105.0)
+            rhom = 13.0 - np.sqrt(105.0)
+            
+            # Working arrays - need size n+1 for periodic algorithm
+            alp = np.zeros(n+1, dtype=np.float64)
+            bet = np.zeros(n+1, dtype=np.float64)
+            gam = np.zeros(n+1, dtype=np.float64)
+            
+            # FORTRAN: First elimination (lines 163-181)
+            alp[1] = 0.0
+            bet[1] = 0.0
+            
+            # do i=1,n-4
+            for i in range(1, n-3):
+                ip1 = i + 1
+                alp[ip1] = -1.0 / (rhop + alp[i])
+                bet[ip1] = alp[ip1] * (bet[i] - 5.0*(coeff[i+3] - 4.0*coeff[i+2] + 6.0*coeff[i+1] - 4.0*coeff[i] + coeff[i-1]))
+            
+            # Special periodic boundary terms
+            alp[n-2] = -1.0 / (rhop + alp[n-3])
+            bet[n-2] = alp[n-2] * (bet[n-3] - 5.0*(coeff[1] - 4.0*coeff[0] + 6.0*coeff[n-2] - 4.0*coeff[n-3] + coeff[n-4]))
+            
+            alp[n-1] = -1.0 / (rhop + alp[n-2])
+            bet[n-1] = alp[n-1] * (bet[n-2] - 5.0*(coeff[2] - 4.0*coeff[1] + 6.0*coeff[0] - 4.0*coeff[n-2] + coeff[n-3]))
+            
+            alp[n] = -1.0 / (rhop + alp[n-1])
+            bet[n] = alp[n] * (bet[n-1] - 5.0*(coeff[3] - 4.0*coeff[2] + 6.0*coeff[1] - 4.0*coeff[0] + coeff[n-2]))
+            
+            # FORTRAN: Back substitution (lines 182-185)
+            gam[n] = bet[n]
+            for i in range(n-1, 0, -1):
+                gam[i] = gam[i+1]*alp[i] + bet[i]
+            
+            # FORTRAN: Sherman-Morrison correction (lines 187-195)
+            xplu = np.sqrt(0.25*rhop**2 - 1.0) - 0.5*rhop
+            xmin = -np.sqrt(0.25*rhop**2 - 1.0) - 0.5*rhop
+            dummy = (1.0/xmin)**(n-1)
+            gammao_m_redef = (gam[2] + xplu*gam[n]) / (1.0 - dummy) / (xmin - xplu)
+            gammao_p = (gam[2] + xmin*gam[n]) / (xplu**(n-1) - 1.0) / (xplu - xmin)
+            gam[1] = gam[1] + gammao_m_redef*dummy + gammao_p
+            for i in range(2, n+1):
+                gam[i] = gam[i] + gammao_m_redef*(1.0/xmin)**(n-i) + gammao_p*xplu**(i-1)
+            
+            # FORTRAN: Second elimination (lines 197-204)
+            alp[1] = 0.0
+            bet[1] = 0.0
+            
+            for i in range(1, n):
+                ip1 = i + 1
+                alp[ip1] = -1.0 / (rhom + alp[i])
+                bet[ip1] = alp[ip1] * (bet[i] - gam[i])
+            
+            # FORTRAN: e coefficients (lines 206-219)
+            e = np.zeros(n+1, dtype=np.float64)
+            e[n] = bet[n]
+            for i in range(n-1, 0, -1):
+                e[i] = e[i+1]*alp[i] + bet[i]
+            
+            # Second Sherman-Morrison correction
+            xplu = np.sqrt(0.25*rhom**2 - 1.0) - 0.5*rhom
+            xmin = -np.sqrt(0.25*rhom**2 - 1.0) - 0.5*rhom
+            dummy = (1.0/xmin)**(n-1)
+            gammao_m_redef = (e[2] + xplu*e[n]) / (1.0 - dummy) / (xmin - xplu)
+            gammao_p = (e[2] + xmin*e[n]) / (xplu**(n-1) - 1.0) / (xplu - xmin)
+            e[1] = e[1] + gammao_m_redef*dummy + gammao_p
+            for i in range(2, n+1):
+                e[i] = e[i] + gammao_m_redef*(1.0/xmin)**(n-i) + gammao_p*xplu**(i-1)
+            
+            # FORTRAN: f coefficients (lines 221-224)
+            f = np.zeros(n+1, dtype=np.float64)
+            for i in range(n-1, 0, -1):
+                f[i] = (e[i+1] - e[i]) / 5.0
+            f[n] = f[1]
+            
+            # FORTRAN: d coefficients (lines 226-234)
+            d = np.zeros(n+1, dtype=np.float64)
+            # d(n-1) in Fortran is d[n-2] in Python
+            d[n-2] = (coeff[2] - 3.0*coeff[1] + 3.0*coeff[0] - coeff[n-2])/6.0 - \
+                     (e[3] + 27.0*e[2] + 93.0*e[1] + 59.0*e[n-2])/30.0
+            # d(n-2) in Fortran is d[n-3] in Python  
+            d[n-3] = (coeff[1] - 3.0*coeff[0] + 3.0*coeff[n-2] - coeff[n-3])/6.0 - \
+                     (e[2] + 27.0*e[1] + 93.0*e[n-2] + 59.0*e[n-3])/30.0
+            # do i=n-3,1,-1 (Fortran) means d(n-3) down to d(1)
+            # In Python: d[n-4] down to d[0]
+            for i in range(n-4, -1, -1):
+                d[i] = (coeff[i+2] - 3.0*coeff[i+1] + 3.0*coeff[i] - coeff[i-1])/6.0 - \
+                       (e[i+3] + 27.0*e[i+2] + 93.0*e[i+1] + 59.0*e[i])/30.0
+            d[n] = d[1]
+            
+            # FORTRAN: c and b coefficients (lines 235-245)
+            c = np.zeros(n+1, dtype=np.float64)
+            b = np.zeros(n+1, dtype=np.float64)
+            c[n-2] = 0.5*(coeff[1] + coeff[n-2]) - coeff[0] - 0.5*d[1] - 2.5*d[n-2] - \
+                     0.1*(e[2] + 18.0*e[1] + 31.0*e[n-2])
+            b[n-2] = coeff[0] - coeff[n-2] - c[n-2] - d[n-2] - 0.2*(4.0*e[n-2] + e[1])
+            
+            for i in range(n-3, 0, -1):
+                c[i] = 0.5*(coeff[i+1] + coeff[i-1]) - coeff[i] - 0.5*d[i] - 2.5*d[i-1] - \
+                       0.1*(e[i+2] + 18.0*e[i+1] + 31.0*e[i])
+                b[i] = coeff[i] - coeff[i-1] - c[i] - d[i] - 0.2*(4.0*e[i] + e[i+1])
+            b[n] = b[1]
+            c[n] = c[1]
+            
+            # FORTRAN: Scaling (lines 247-256)
+            fac = 1.0 / h_step
+            b = b * fac
+            fac = fac / h_step
+            c = c * fac
+            fac = fac / h_step
+            d = d * fac
+            fac = fac / h_step
+            e = e * fac
+            fac = fac / h_step
+            f = f * fac
+            
+            # Now copy to coefficient array
             for i in range(n):
-                coeff[n + i] = 0.0
-                coeff[2*n + i] = 0.0
-                coeff[3*n + i] = 0.0
-                coeff[4*n + i] = 0.0
-                coeff[5*n + i] = 0.0
+                coeff[n + i] = b[i]
+                coeff[2*n + i] = c[i]
+                coeff[3*n + i] = d[i]
+                coeff[4*n + i] = e[i]
+                coeff[5*n + i] = f[i]
 
 
 # ==== 1D SPLINE EVALUATION ====
