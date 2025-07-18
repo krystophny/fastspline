@@ -260,31 +260,6 @@ def construct_splines_1d_cfunc(x_min, x_max, y, num_points, order, periodic, coe
                 coeff[3*n + i] = d[i]
                 coeff[4*n + i] = e[i]
             
-            # Final coefficients for last points
-            if n >= 2:
-                coeff[n + n-2] = coeff[n + n-3] + 2.0 * coeff[2*n + n-3] + 3.0 * coeff[3*n + n-3] + 4.0 * coeff[4*n + n-3]  # b[n-1]
-                coeff[2*n + n-2] = coeff[2*n + n-3] + 3.0 * coeff[3*n + n-3] + 6.0 * coeff[4*n + n-3]  # c[n-1]
-                coeff[4*n + n-2] = coeff[n-1] - coeff[n-2] - coeff[n + n-2] - coeff[2*n + n-2] - coeff[3*n + n-2]  # e[n-1]
-            
-            if n >= 1:
-                coeff[n + n-1] = coeff[n + n-2] + 2.0 * coeff[2*n + n-2] + 3.0 * coeff[3*n + n-2] + 4.0 * coeff[4*n + n-2]  # b[n]
-                coeff[2*n + n-1] = coeff[2*n + n-2] + 3.0 * coeff[3*n + n-2] + 6.0 * coeff[4*n + n-2]  # c[n]
-                coeff[4*n + n-1] = coeff[4*n + n-2] if n >= 2 else 0.0  # e[n]
-            
-            # Scale coefficients by powers of 1/h
-            fac = 1.0 / h_step
-            for i in range(n):
-                coeff[n + i] *= fac  # b
-            fac /= h_step
-            for i in range(n):
-                coeff[2*n + i] *= fac  # c
-            fac /= h_step
-            for i in range(n):
-                coeff[3*n + i] *= fac  # d
-            fac /= h_step
-            for i in range(n):
-                coeff[4*n + i] *= fac  # e
-            
     elif order == 5:
         # Quintic spline - complete implementation ported from spl_three_to_five.f90
         if periodic == 0:

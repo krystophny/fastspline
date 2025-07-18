@@ -31,11 +31,11 @@ program debug_quartic_fortran
   call spl_four_reg(n, h, a, b, c, d, e)
   
   print *, ''
-  print *, 'Coefficients from Fortran:'
-  print *, '   i        a            b            c            d            e'
-  print *, '------------------------------------------------------------------'
+  print *, 'Coefficients from Fortran (full precision):'
+  print *, '   i        a                    b                    c                    d                    e'
+  print *, '----------------------------------------------------------------------------------------------------'
   do i = 1, n
-    write(*, '(i4, 5f13.6)') i, a(i), b(i), c(i), d(i), e(i)
+    write(*, '(i4, 5f21.15)') i, a(i), b(i), c(i), d(i), e(i)
   enddo
   
   ! Test evaluation at x=0.5
