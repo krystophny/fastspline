@@ -203,19 +203,21 @@ def construct_splines_1d_cfunc(x_min, x_max, y, num_points, order, periodic, coe
         raise ValueError("Quartic (4th order) splines are temporarily disabled. Use order=3 or order=5 instead.")
             
     elif order == 5:
-        # Quintic spline - complete implementation ported from spl_three_to_five.f90
+        # Quintic spline - EXACT 1:1 port from Fortran spl_five_reg/spl_five_per
         if periodic == 0:
-            # Regular quintic spline (spl_five_reg)
-            # Use precomputed constants
-            rhop = RHOP
-            rhom = RHOM
+            # Regular quintic spline - EXACT 1:1 Fortran port from spl_five_reg
+            # From spl_three_to_five.f90 lines 7-144
+            
+            # Fortran constants
+            rhop = 13.0 + np.sqrt(105.0)
+            rhom = 13.0 - np.sqrt(105.0)
             
             # Working arrays
             alp = np.zeros(n, dtype=np.float64)
             bet = np.zeros(n, dtype=np.float64)
             gam = np.zeros(n, dtype=np.float64)
             
-            # Boundary conditions setup - first system
+            # FORTRAN: First boundary system matrix (lines 23-32)
             a11 = 1.0
             a12 = 1.0/4.0
             a13 = 1.0/16.0
@@ -227,37 +229,23 @@ def construct_splines_1d_cfunc(x_min, x_max, y, num_points, order, periodic, coe
             a33 = 5.0**5/16.0
             det = a11*a22*a33 + a12*a23*a31 + a13*a21*a32 - a12*a21*a33 - a13*a22*a31 - a11*a23*a32
             
-            # Boundary values for beginning
-            if n >= 6:
-                b1 = coeff[3] - coeff[2]
-                b2 = coeff[4] - coeff[1]
-                b3 = coeff[5] - coeff[0]
-            else:
-                b1 = b2 = b3 = 0.0
+            # FORTRAN: Beginning boundary (lines 33-41)
+            b1 = coeff[3] - coeff[2]  # a(4)-a(3)
+            b2 = coeff[4] - coeff[1]  # a(5)-a(2)
+            b3 = coeff[5] - coeff[0]  # a(6)-a(1)
+            bbeg = (b1*a22*a33 + a12*a23*b3 + a13*b2*a32 - a12*b2*a33 - a13*a22*b3 - b1*a23*a32) / det
+            dbeg = (a11*b2*a33 + b1*a23*a31 + a13*a21*b3 - b1*a21*a33 - a13*b2*a31 - a11*a23*b3) / det
+            fbeg = (a11*a22*b3 + a12*b2*a31 + b1*a21*a32 - a12*a21*b3 - b1*a22*a31 - a11*b2*a32) / det
             
-            bbeg = b1*a22*a33 + a12*a23*b3 + a13*b2*a32 - a12*b2*a33 - a13*a22*b3 - b1*a23*a32
-            bbeg = bbeg/det
-            dbeg = a11*b2*a33 + b1*a23*a31 + a13*a21*b3 - b1*a21*a33 - a13*b2*a31 - a11*a23*b3
-            dbeg = dbeg/det
-            fbeg = a11*a22*b3 + a12*b2*a31 + b1*a21*a32 - a12*a21*b3 - b1*a22*a31 - a11*b2*a32
-            fbeg = fbeg/det
+            # FORTRAN: End boundary (lines 42-50)
+            b1 = coeff[n-3] - coeff[n-4]  # a(n-2)-a(n-3)
+            b2 = coeff[n-2] - coeff[n-5]  # a(n-1)-a(n-4)
+            b3 = coeff[n-1] - coeff[n-6]  # a(n)-a(n-5)
+            bend = (b1*a22*a33 + a12*a23*b3 + a13*b2*a32 - a12*b2*a33 - a13*a22*b3 - b1*a23*a32) / det
+            dend = (a11*b2*a33 + b1*a23*a31 + a13*a21*b3 - b1*a21*a33 - a13*b2*a31 - a11*a23*b3) / det
+            fend = (a11*a22*b3 + a12*b2*a31 + b1*a21*a32 - a12*a21*b3 - b1*a22*a31 - a11*b2*a32) / det
             
-            # Boundary values for end
-            if n >= 6:
-                b1 = coeff[n-3] - coeff[n-4]
-                b2 = coeff[n-2] - coeff[n-5]
-                b3 = coeff[n-1] - coeff[n-6]
-            else:
-                b1 = b2 = b3 = 0.0
-            
-            bend = b1*a22*a33 + a12*a23*b3 + a13*b2*a32 - a12*b2*a33 - a13*a22*b3 - b1*a23*a32
-            bend = bend/det
-            dend = a11*b2*a33 + b1*a23*a31 + a13*a21*b3 - b1*a21*a33 - a13*b2*a31 - a11*a23*b3
-            dend = dend/det
-            fend = a11*a22*b3 + a12*b2*a31 + b1*a21*a32 - a12*a21*b3 - b1*a22*a31 - a11*b2*a32
-            fend = fend/det
-            
-            # Second system for abeg, cbeg, ebeg, aend, cend, eend
+            # FORTRAN: Second boundary system matrix (lines 51-59)
             a11 = 2.0
             a12 = 1.0/2.0
             a13 = 1.0/8.0
@@ -269,177 +257,63 @@ def construct_splines_1d_cfunc(x_min, x_max, y, num_points, order, periodic, coe
             a33 = 625.0/8.0
             det = a11*a22*a33 + a12*a23*a31 + a13*a21*a32 - a12*a21*a33 - a13*a22*a31 - a11*a23*a32
             
-            if n >= 6:
-                b1 = coeff[3] + coeff[2]
-                b2 = coeff[4] + coeff[1]
-                b3 = coeff[5] + coeff[0]
-            else:
-                b1 = b2 = b3 = 0.0
-            
-            abeg = b1*a22*a33 + a12*a23*b3 + a13*b2*a32 - a12*b2*a33 - a13*a22*b3 - b1*a23*a32
-            abeg = abeg/det
-            cbeg = a11*b2*a33 + b1*a23*a31 + a13*a21*b3 - b1*a21*a33 - a13*b2*a31 - a11*a23*b3
-            cbeg = cbeg/det
-            ebeg = a11*a22*b3 + a12*b2*a31 + b1*a21*a32 - a12*a21*b3 - b1*a22*a31 - a11*b2*a32
-            ebeg = ebeg/det
-            
-            if n >= 6:
-                b1 = coeff[n-3] + coeff[n-4]
-                b2 = coeff[n-2] + coeff[n-5]
-                b3 = coeff[n-1] + coeff[n-6]
-            else:
-                b1 = b2 = b3 = 0.0
-            
-            aend = b1*a22*a33 + a12*a23*b3 + a13*b2*a32 - a12*b2*a33 - a13*a22*b3 - b1*a23*a32
-            aend = aend/det
-            cend = a11*b2*a33 + b1*a23*a31 + a13*a21*b3 - b1*a21*a33 - a13*b2*a31 - a11*a23*b3
-            cend = cend/det
-            eend = a11*a22*b3 + a12*b2*a31 + b1*a21*a32 - a12*a21*b3 - b1*a22*a31 - a11*b2*a32
-            eend = eend/det
-            
-            # Forward elimination for gamma
-            # Use correct boundary values from Fortran debug output
-            ebeg_correct = 0.94693080664129126
-            fbeg_correct = -0.14546483754203274
-            eend_correct = -0.94693080657571382
-            fend_correct = -0.14546483746950811
-            dend_correct = 4.227165348008931  # Calculated to match Fortran debug d[n-2]
-            
-            alp[0] = 0.0
-            bet[0] = ebeg_correct*(2.0 + rhom) - 5.0*fbeg_correct*(3.0 + 1.5*rhom)
-            
-            for i in range(n-4):
-                ip1 = i + 1
-                if abs(rhop + alp[i]) > 1e-15:
-                    alp[ip1] = -1.0/(rhop + alp[i])
-                    if i+4 < n:
-                        fifth_diff = coeff[i+4] - 4.0*coeff[i+3] + 6.0*coeff[i+2] - 4.0*coeff[ip1] + coeff[i]
-                    else:
-                        fifth_diff = 0.0
-                    bet[ip1] = alp[ip1]*(bet[i] - 5.0*fifth_diff)
-                else:
-                    alp[ip1] = 0.0
-                    bet[ip1] = 0.0
-            
-            # Back substitution for gamma
-            if n >= 3:
-                gam[n-2] = eend_correct*(2.0 + rhom) + 5.0*fend_correct*(3.0 + 1.5*rhom)
-            
-            # Fortran: do i=n-3,1,-1 with 1-based = range(n-4, -1, -1) with 0-based
-            for i in range(n-3, -1, -1):
-                gam[i] = gam[i+1]*alp[i] + bet[i]
-            
-            # Forward elimination for e
-            alp[0] = 0.0
-            bet[0] = ebeg_correct - 2.5*5.0*fbeg_correct
-            
-            for i in range(n-2):
-                ip1 = i + 1
-                if abs(rhom + alp[i]) > 1e-15:
-                    alp[ip1] = -1.0/(rhom + alp[i])
-                    bet[ip1] = alp[ip1]*(bet[i] - gam[i])
-                else:
-                    alp[ip1] = 0.0
-                    bet[ip1] = 0.0
-            
-            # COMPLETE QUINTIC ALGORITHM - Ported from Fortran spl_five_reg
-            # Boundary condition calculations using two 3x3 linear systems
-            
-            # First system for odd derivatives (b, d, f)
-            a11, a12, a13 = 1.0, 0.5, 0.25
-            a21, a22, a23 = 1.0, 2.25, 2.25**2
-            a31, a32, a33 = 1.0, 6.25, 6.25**2
-            
-            det = a11*a22*a33 + a12*a23*a31 + a13*a21*a32 - a12*a21*a33 - a13*a22*a31 - a11*a23*a32
-            
-            # Beginning values for b, d, f
-            b1 = 2.0*coeff[2] - coeff[1] - coeff[0]
-            b2 = 2.0*coeff[3] - coeff[1] - coeff[0]
-            b3 = 2.0*coeff[4] - coeff[1] - coeff[0]
-            
-            bbeg = (b1*a22*a33 + a12*a23*b3 + a13*b2*a32 - a12*b2*a33 - a13*a22*b3 - b1*a23*a32) / det
-            dbeg = (a11*b2*a33 + b1*a23*a31 + a13*a21*b3 - b1*a21*a33 - a13*b2*a31 - a11*a23*b3) / det
-            fbeg = (a11*a22*b3 + a12*b2*a31 + b1*a21*a32 - a12*a21*b3 - b1*a22*a31 - a11*b2*a32) / det
-            
-            # End values
-            b1 = 2.0*coeff[n-3] - coeff[n-2] - coeff[n-1]
-            b2 = 2.0*coeff[n-4] - coeff[n-2] - coeff[n-1]
-            b3 = 2.0*coeff[n-5] - coeff[n-2] - coeff[n-1]
-            
-            bend = (b1*a22*a33 + a12*a23*b3 + a13*b2*a32 - a12*b2*a33 - a13*a22*b3 - b1*a23*a32) / det
-            dend = (a11*b2*a33 + b1*a23*a31 + a13*a21*b3 - b1*a21*a33 - a13*b2*a31 - a11*a23*b3) / det
-            fend = (a11*a22*b3 + a12*b2*a31 + b1*a21*a32 - a12*a21*b3 - b1*a22*a31 - a11*b2*a32) / det
-            
-            # Second system for even derivatives (a, c, e) 
-            a11, a12, a13 = 2.0, 1.0/2.0, 1.0/8.0
-            a21, a22, a23 = 2.0, 9.0/2.0, 81.0/8.0
-            a31, a32, a33 = 2.0, 25.0/2.0, 625.0/8.0
-            
-            det = a11*a22*a33 + a12*a23*a31 + a13*a21*a32 - a12*a21*a33 - a13*a22*a31 - a11*a23*a32
-            
-            # Beginning values
-            b1 = coeff[3] + coeff[2]
-            b2 = coeff[4] + coeff[1]
-            b3 = coeff[5] + coeff[0]
-            
+            # FORTRAN: Beginning boundary (lines 61-69)
+            b1 = coeff[3] + coeff[2]  # a(4)+a(3)
+            b2 = coeff[4] + coeff[1]  # a(5)+a(2)
+            b3 = coeff[5] + coeff[0]  # a(6)+a(1)
             abeg = (b1*a22*a33 + a12*a23*b3 + a13*b2*a32 - a12*b2*a33 - a13*a22*b3 - b1*a23*a32) / det
             cbeg = (a11*b2*a33 + b1*a23*a31 + a13*a21*b3 - b1*a21*a33 - a13*b2*a31 - a11*a23*b3) / det
             ebeg = (a11*a22*b3 + a12*b2*a31 + b1*a21*a32 - a12*a21*b3 - b1*a22*a31 - a11*b2*a32) / det
             
-            # End values
-            b1 = coeff[n-3] + coeff[n-4]
-            b2 = coeff[n-2] + coeff[n-5]
-            b3 = coeff[n-1] + coeff[n-6]
-            
+            # FORTRAN: End boundary (lines 70-78)
+            b1 = coeff[n-3] + coeff[n-4]  # a(n-2)+a(n-3)
+            b2 = coeff[n-2] + coeff[n-5]  # a(n-1)+a(n-4)
+            b3 = coeff[n-1] + coeff[n-6]  # a(n)+a(n-5)
             aend = (b1*a22*a33 + a12*a23*b3 + a13*b2*a32 - a12*b2*a33 - a13*a22*b3 - b1*a23*a32) / det
             cend = (a11*b2*a33 + b1*a23*a31 + a13*a21*b3 - b1*a21*a33 - a13*b2*a31 - a11*a23*b3) / det
             eend = (a11*a22*b3 + a12*b2*a31 + b1*a21*a32 - a12*a21*b3 - b1*a22*a31 - a11*b2*a32) / det
             
-            # Initialize coefficient arrays
-            b = np.zeros(n, dtype=np.float64)
-            c = np.zeros(n, dtype=np.float64)
-            d = np.zeros(n, dtype=np.float64)
-            e = np.zeros(n, dtype=np.float64)
-            f = np.zeros(n, dtype=np.float64)
-            
-            # Forward elimination arrays
-            alp = np.zeros(n, dtype=np.float64)
-            bet = np.zeros(n, dtype=np.float64)
-            gam = np.zeros(n, dtype=np.float64)
-            
-            # First forward elimination with rhop
+            # FORTRAN: First elimination (lines 82-90)
             alp[0] = 0.0
-            bet[0] = ebeg*(2.0 + RHOM) - 5.0*fbeg*(3.0 + 1.5*RHOM)
+            bet[0] = ebeg*(2.0 + rhom) - 5.0*fbeg*(3.0 + 1.5*rhom)
             
             for i in range(n-4):
                 ip1 = i + 1
-                alp[ip1] = -1.0 / (RHOP + alp[i])
-                fifth_diff = coeff[i+4] - 4.0*coeff[i+3] + 6.0*coeff[i+2] - 4.0*coeff[ip1] + coeff[i]
-                bet[ip1] = alp[ip1] * (bet[i] - 5.0*fifth_diff)
+                alp[ip1] = -1.0 / (rhop + alp[i])
+                # FORTRAN: 5.d0*(a(i+4)-4.d0*a(i+3)+6.d0*a(i+2)-4.d0*a(ip1)+a(i))
+                bet[ip1] = alp[ip1] * (bet[i] - 5.0*(coeff[i+4] - 4.0*coeff[i+3] + 6.0*coeff[i+2] - 4.0*coeff[ip1] + coeff[i]))
             
-            # Back substitution for gamma
-            gam[n-3] = eend*(2.0 + RHOM) + 5.0*fend*(3.0 + 1.5*RHOM)
-            for i in range(n-4, -1, -1):
+            # FORTRAN: Back substitution (lines 92-95)
+            # gam(n-2)=eend*(2.d0+rhom)+5.d0*fend*(3.d0+1.5d0*rhom) !gamma
+            gam[n-2] = eend*(2.0 + rhom) + 5.0*fend*(3.0 + 1.5*rhom)
+            # do i=n-3,1,-1 (Fortran 1-based) = range(n-4, -1, -1) in Python 0-based
+            for i in range(n-3, -1, -1):
                 gam[i] = gam[i+1]*alp[i] + bet[i]
             
-            # Second forward elimination with rhom
+            # FORTRAN: Second elimination (lines 97-104)
             alp[0] = 0.0
             bet[0] = ebeg - 2.5*5.0*fbeg
             
             for i in range(n-2):
                 ip1 = i + 1
-                alp[ip1] = -1.0 / (RHOM + alp[i])
+                alp[ip1] = -1.0 / (rhom + alp[i])
                 bet[ip1] = alp[ip1] * (bet[i] - gam[i])
             
-            # Back substitution for e coefficients
+            # FORTRAN: Final coefficients (lines 106-121)
+            e = np.zeros(n, dtype=np.float64)
+            f = np.zeros(n, dtype=np.float64)
+            d = np.zeros(n, dtype=np.float64)
+            c = np.zeros(n, dtype=np.float64)
+            b = np.zeros(n, dtype=np.float64)
+            
             e[n-1] = eend + 2.5*5.0*fend
             e[n-2] = e[n-1]*alp[n-2] + bet[n-2]
             f[n-2] = (e[n-1] - e[n-2]) / 5.0
             e[n-3] = e[n-2]*alp[n-3] + bet[n-3]
             f[n-3] = (e[n-2] - e[n-3]) / 5.0
-            d[n-3] = dend + 1.5*4.0*eend + 1.5**2*10.0*fend
+            # FORTRAN: d(n-2)=dend+... (line 111)
+            d[n-2] = dend + 1.5*4.0*eend + 1.5**2*10.0*fend
             
-            # Complete back substitution
             for i in range(n-4, -1, -1):
                 e[i] = e[i+1]*alp[i] + bet[i]
                 f[i] = (e[i+1] - e[i]) / 5.0
@@ -449,26 +323,37 @@ def construct_splines_1d_cfunc(x_min, x_max, y, num_points, order, periodic, coe
                        0.1*(e[i+2] + 18.0*e[i+1] + 31.0*e[i])
                 b[i] = coeff[i+1] - coeff[i] - c[i] - d[i] - 0.2*(4.0*e[i] + e[i+1])
             
-            # Handle last few points using continuity - EXACT Fortran algorithm
-            for i in range(n-3, n):
+            # FORTRAN: Boundary handling (lines 123-129)
+            # Fortran: do i=n-3,n means i=n-3,n-2,n-1,n (1-based)
+            # Python: this is indices n-4,n-3,n-2,n-1 (0-based)
+            for i in range(n-4, n):
                 b[i] = b[i-1] + 2.0*c[i-1] + 3.0*d[i-1] + 4.0*e[i-1] + 5.0*f[i-1]
                 c[i] = c[i-1] + 3.0*d[i-1] + 6.0*e[i-1] + 10.0*f[i-1]
                 d[i] = d[i-1] + 4.0*e[i-1] + 10.0*f[i-1]
                 if i < n-1:
-                    # FORTRAN: if(i.ne.n) f(i)= a(i+1)-a(i)-b(i)-c(i)-d(i)-e(i)
                     f[i] = coeff[i+1] - coeff[i] - b[i] - c[i] - d[i] - e[i]
-            
-            # FORTRAN: f(n)=f(n-1)
             f[n-1] = f[n-2]
             
-            # Scale coefficients by powers of 1/h
-            h_inv = 1.0 / h_step
+            # FORTRAN: Scaling (lines 131-140)
+            # In Fortran: b=b*fac means multiply ALL elements
+            fac = 1.0 / h_step
+            b = b * fac
+            fac = fac / h_step
+            c = c * fac
+            fac = fac / h_step
+            d = d * fac
+            fac = fac / h_step
+            e = e * fac
+            fac = fac / h_step
+            f = f * fac
+            
+            # Now copy to coefficient array
             for i in range(n):
-                coeff[n + i] = b[i] * h_inv
-                coeff[2*n + i] = c[i] * h_inv**2
-                coeff[3*n + i] = d[i] * h_inv**3
-                coeff[4*n + i] = e[i] * h_inv**4
-                coeff[5*n + i] = f[i] * h_inv**5
+                coeff[n + i] = b[i]
+                coeff[2*n + i] = c[i]
+                coeff[3*n + i] = d[i]
+                coeff[4*n + i] = e[i]
+                coeff[5*n + i] = f[i]
             
         else:
             # Periodic quintic spline - placeholder for now
