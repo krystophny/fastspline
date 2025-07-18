@@ -286,8 +286,10 @@ def construct_splines_1d_cfunc(x_min, x_max, y, num_points, order, periodic, coe
             # FORTRAN: Back substitution (lines 92-95)
             # gam(n-2)=eend*(2.d0+rhom)+5.d0*fend*(3.d0+1.5d0*rhom) !gamma
             gam[n-2] = eend*(2.0 + rhom) + 5.0*fend*(3.0 + 1.5*rhom)
-            # do i=n-3,1,-1 (Fortran 1-based) = range(n-4, -1, -1) in Python 0-based
-            for i in range(n-3, -1, -1):
+            # do i=n-3,1,-1 (Fortran 1-based)
+            # In Fortran this is indices n-3, n-4, ..., 2, 1
+            # In Python 0-based: indices n-4, n-5, ..., 1, 0
+            for i in range(n-4, -1, -1):
                 gam[i] = gam[i+1]*alp[i] + bet[i]
             
             # FORTRAN: Second elimination (lines 97-104)
@@ -314,6 +316,9 @@ def construct_splines_1d_cfunc(x_min, x_max, y, num_points, order, periodic, coe
             # FORTRAN: d(n-2)=dend+... (line 111)
             d[n-2] = dend + 1.5*4.0*eend + 1.5**2*10.0*fend
             
+            # do i=n-3,1,-1
+            # Fortran goes from n-3 down to 1 (not 0!)
+            # In Python: from index n-4 down to 0 (inclusive)
             for i in range(n-4, -1, -1):
                 e[i] = e[i+1]*alp[i] + bet[i]
                 f[i] = (e[i+1] - e[i]) / 5.0
